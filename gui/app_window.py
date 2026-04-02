@@ -155,7 +155,7 @@ class AppWindow(QMainWindow):
 
     def _build_ui(self):
         c = get_colors(self._dark)
-        self.setWindowTitle("MiniServer")
+        self.setWindowTitle("Droply")
         self.resize(1000, 640)
         self.setMinimumSize(780, 520)
         self.setStyleSheet(_make_app_style(c))
@@ -172,7 +172,7 @@ class AppWindow(QMainWindow):
 
         logo_row = QHBoxLayout(); logo_row.setSpacing(2)
         dot = QLabel("·"); dot.setObjectName("logo-dot")
-        logo = QLabel("MiniServer"); logo.setObjectName("logo")
+        logo = QLabel("Droply"); logo.setObjectName("logo")
         logo_row.addWidget(dot)
         logo_row.addWidget(logo)
         hl.addLayout(logo_row)
