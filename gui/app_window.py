@@ -5,81 +5,102 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QStackedWidget, QPushButton, QLabel, QFrame, QMessageBox
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
-from PyQt6.QtGui import QFont, QColor, QPalette, QIcon
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QPropertyAnimation, QEasingCurve
+from PyQt6.QtGui import QFont, QColor, QCursor, QIcon
 
 from server.app import create_app, load_config
 from core.network import get_server_url
 
-STYLE = """
-QMainWindow, QWidget {
-    background-color: #0d0d0f;
-    color: #e8e8e8;
-    font-family: 'SF Pro Display', 'Segoe UI', sans-serif;
+DARK = {
+    "bg":         "#0f0f13",
+    "surface":    "#16161d",
+    "surface2":   "#1c1c26",
+    "border":     "#25252f",
+    "accent":     "#6c8fff",
+    "accent_dim": "#6c8fff22",
+    "text":       "#e8e8f0",
+    "muted":      "#5a5a72",
+    "dimmer":     "#2e2e3a",
 }
-QFrame#sidebar {
-    background-color: #111115;
-    border-right: 1px solid #1e1e28;
-    min-width: 200px;
-    max-width: 200px;
-}
-QPushButton#nav-btn {
+
+STYLE = f"""
+* {{ font-family: 'Inter', 'SF Pro Display', 'Segoe UI', sans-serif; }}
+QMainWindow, QWidget {{ background-color: {DARK['bg']}; color: {DARK['text']}; }}
+
+/* ── Sidebar ── */
+QFrame#sidebar {{
+    background-color: {DARK['surface']};
+    border-right: 1px solid {DARK['border']};
+    min-width: 210px; max-width: 210px;
+}}
+QPushButton#nav-btn {{
     background: transparent;
-    color: #666680;
+    color: {DARK['muted']};
     border: none;
     text-align: left;
-    padding: 11px 20px;
+    padding: 10px 18px 10px 22px;
     font-size: 13px;
-    border-radius: 0px;
-}
-QPushButton#nav-btn:hover {
-    background-color: #1a1a22;
-    color: #c0c0d8;
-}
-QPushButton#nav-btn[active=true] {
-    background-color: #16161f;
-    color: #00d4ff;
-    border-left: 2px solid #00d4ff;
-}
-QFrame#header {
-    background-color: #111115;
-    border-bottom: 1px solid #1e1e28;
-    min-height: 52px;
-    max-height: 52px;
-}
-QLabel#logo {
-    color: #ffffff;
+    border-radius: 0;
+}}
+QPushButton#nav-btn:hover {{
+    background-color: {DARK['surface2']};
+    color: {DARK['text']};
+}}
+QPushButton#nav-btn[active=true] {{
+    background-color: {DARK['surface2']};
+    color: {DARK['accent']};
+    border-left: 2px solid {DARK['accent']};
+    padding-left: 20px;
+    font-weight: 600;
+}}
+
+/* ── Header ── */
+QFrame#header {{
+    background-color: {DARK['surface']};
+    border-bottom: 1px solid {DARK['border']};
+    min-height: 56px; max-height: 56px;
+}}
+QLabel#logo {{
+    color: {DARK['text']};
     font-size: 15px;
     font-weight: 700;
-    letter-spacing: 1px;
-}
-QLabel#status-badge {
-    background-color: #0a2a1a;
-    color: #00d4ff;
-    border: 1px solid #00d4ff40;
+    letter-spacing: 0.5px;
+}}
+QLabel#status-pill {{
+    background-color: {DARK['accent_dim']};
+    color: {DARK['accent']};
+    border: 1px solid {DARK['accent']};
     border-radius: 10px;
-    padding: 2px 12px;
+    padding: 3px 12px;
     font-size: 11px;
-}
-QFrame#content {
-    background-color: #0d0d0f;
-}
-QFrame#statusbar {
-    background-color: #111115;
-    border-top: 1px solid #1e1e28;
-    min-height: 26px;
-    max-height: 26px;
-}
-QLabel#statusbar-text {
-    color: #444460;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}}
+
+/* ── Statusbar ── */
+QFrame#statusbar {{
+    background-color: {DARK['surface']};
+    border-top: 1px solid {DARK['border']};
+    min-height: 28px; max-height: 28px;
+}}
+QLabel#sb-text {{
+    color: {DARK['muted']};
     font-size: 11px;
-    font-family: 'SF Mono', 'Consolas', monospace;
-}
+    font-family: 'SF Mono', 'JetBrains Mono', 'Consolas', monospace;
+}}
+
+/* ── Sidebar section label ── */
+QLabel#nav-section {{
+    color: {DARK['dimmer']};
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    padding: 0 22px;
+}}
 """
 
 
 class EventBridge(QObject):
-    """Pont thread-safe entre Flask et Qt (signaux Qt)."""
     new_event = pyqtSignal(dict)
 
 
@@ -92,185 +113,141 @@ class AppWindow(QMainWindow):
         self.bridge.new_event.connect(self._dispatch)
         self._build_ui()
         self._start_server()
-        # Timer Qt pour lire la queue toutes les 150ms
         self._timer = QTimer()
         self._timer.timeout.connect(self._poll_events)
         self._timer.start(150)
 
+    # ── UI ────────────────────────────────────────────────────
+
     def _build_ui(self):
         self.setWindowTitle("MiniServer")
-        self.resize(900, 580)
-        self.setMinimumSize(720, 480)
+        self.resize(980, 620)
+        self.setMinimumSize(760, 500)
         self.setStyleSheet(STYLE)
 
         central = QWidget()
         self.setCentralWidget(central)
-        root_layout = QVBoxLayout(central)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
+        root = QVBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        # ── Header ────────────────────────────────────────────
-        header = QFrame()
-        header.setObjectName("header")
-        h_layout = QHBoxLayout(header)
-        h_layout.setContentsMargins(20, 0, 20, 0)
+        # Header
+        header = QFrame(); header.setObjectName("header")
+        hl = QHBoxLayout(header); hl.setContentsMargins(22, 0, 22, 0)
+        logo = QLabel("MiniServer"); logo.setObjectName("logo")
+        hl.addWidget(logo)
+        hl.addStretch()
+        self.status_pill = QLabel("● Démarrage…")
+        self.status_pill.setObjectName("status-pill")
+        hl.addWidget(self.status_pill)
+        root.addWidget(header)
 
-        logo = QLabel("⬡  MINISERVER")
-        logo.setObjectName("logo")
-        h_layout.addWidget(logo)
-        h_layout.addStretch()
-
-        self.status_badge = QLabel("● EN LIGNE")
-        self.status_badge.setObjectName("status-badge")
-        h_layout.addWidget(self.status_badge)
-
-        root_layout.addWidget(header)
-
-        # ── Body (sidebar + content) ──────────────────────────
+        # Body
         body = QWidget()
-        body_layout = QHBoxLayout(body)
-        body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(0)
+        bl = QHBoxLayout(body); bl.setContentsMargins(0,0,0,0); bl.setSpacing(0)
 
         # Sidebar
-        self.sidebar = QFrame()
-        self.sidebar.setObjectName("sidebar")
-        side_layout = QVBoxLayout(self.sidebar)
-        side_layout.setContentsMargins(0, 16, 0, 16)
-        side_layout.setSpacing(2)
+        sidebar = QFrame(); sidebar.setObjectName("sidebar")
+        sl = QVBoxLayout(sidebar); sl.setContentsMargins(0,20,0,20); sl.setSpacing(2)
 
-        self.nav_buttons = []
-        nav_items = [
-            ("  Fichiers",     "files"),
-            ("  Transferts",   "transfers"),
-            ("  QR Code",      "qrcode"),
-            ("  Paramètres",   "settings"),
-        ]
-        for label, name in nav_items:
-            btn = QPushButton(label)
-            btn.setObjectName("nav-btn")
-            btn.setProperty("page", name)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.clicked.connect(lambda _, n=name: self._switch_page(n))
-            side_layout.addWidget(btn)
-            self.nav_buttons.append(btn)
+        nav_section = QLabel("NAVIGATION"); nav_section.setObjectName("nav-section")
+        sl.addWidget(nav_section)
+        sl.addSpacing(8)
 
-        side_layout.addStretch()
+        self._nav_btns = []
+        pages = [("  Fichiers",   "files"),
+                 ("  Transferts", "transfers"),
+                 ("  QR Code",    "qrcode"),
+                 ("  Paramètres", "settings")]
+        for label, name in pages:
+            b = QPushButton(label); b.setObjectName("nav-btn")
+            b.setProperty("page", name)
+            b.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            b.clicked.connect(lambda _, n=name: self._go(n))
+            sl.addWidget(b); self._nav_btns.append(b)
 
-        # Version en bas de sidebar
+        sl.addStretch()
         ver = QLabel("v1.0.0")
-        ver.setStyleSheet("color: #333350; font-size: 10px; padding: 0 20px;")
-        side_layout.addWidget(ver)
+        ver.setStyleSheet(f"color:{DARK['dimmer']}; font-size:10px; padding:0 22px;")
+        sl.addWidget(ver)
+        bl.addWidget(sidebar)
 
-        body_layout.addWidget(self.sidebar)
-
-        # Stack de pages
+        # Pages
         self.stack = QStackedWidget()
-        self.stack.setObjectName("content")
-
         from gui.tab_files     import FilesTab
         from gui.tab_transfers import TransfersTab
         from gui.tab_qrcode    import QRCodeTab
         from gui.tab_settings  import SettingsTab
-
         self.tab_files     = FilesTab(self.config)
         self.tab_transfers = TransfersTab()
         self.tab_qrcode    = QRCodeTab(self.config)
         self.tab_settings  = SettingsTab(self.config, self)
+        for tab in [self.tab_files, self.tab_transfers, self.tab_qrcode, self.tab_settings]:
+            self.stack.addWidget(tab)
+        bl.addWidget(self.stack)
+        root.addWidget(body)
 
-        self.stack.addWidget(self.tab_files)
-        self.stack.addWidget(self.tab_transfers)
-        self.stack.addWidget(self.tab_qrcode)
-        self.stack.addWidget(self.tab_settings)
+        # Statusbar
+        sb = QFrame(); sb.setObjectName("statusbar")
+        sbl = QHBoxLayout(sb); sbl.setContentsMargins(18,0,18,0)
+        self.sb_text = QLabel(""); self.sb_text.setObjectName("sb-text")
+        sbl.addWidget(self.sb_text)
+        root.addWidget(sb)
 
-        body_layout.addWidget(self.stack)
-        root_layout.addWidget(body)
+        self._go("files")
 
-        # ── Status bar ────────────────────────────────────────
-        statusbar = QFrame()
-        statusbar.setObjectName("statusbar")
-        sb_layout = QHBoxLayout(statusbar)
-        sb_layout.setContentsMargins(16, 0, 16, 0)
-        self.sb_text = QLabel("")
-        self.sb_text.setObjectName("statusbar-text")
-        sb_layout.addWidget(self.sb_text)
-        root_layout.addWidget(statusbar)
-
-        self._switch_page("files")
-
-    def _switch_page(self, name: str):
-        pages = ["files", "transfers", "qrcode", "settings"]
-        idx = pages.index(name) if name in pages else 0
+    def _go(self, name: str):
+        idx = ["files","transfers","qrcode","settings"].index(name)
         self.stack.setCurrentIndex(idx)
-        for btn in self.nav_buttons:
-            active = btn.property("page") == name
-            btn.setProperty("active", active)
-            btn.style().unpolish(btn)
-            btn.style().polish(btn)
+        for b in self._nav_btns:
+            active = b.property("page") == name
+            b.setProperty("active", active)
+            b.style().unpolish(b); b.style().polish(b)
+
+    # ── Server ────────────────────────────────────────────────
 
     def _start_server(self):
         self.flask_app = create_app(self.config, self.event_queue)
         port = self.config["server"]["port"]
-
-        def run():
-            self.flask_app.run(
-                host=self.config["server"]["host"],
-                port=port,
-                debug=False,
-                use_reloader=False,
-            )
-
-        self.server_thread = threading.Thread(target=run, daemon=True)
-        self.server_thread.start()
-
+        threading.Thread(
+            target=lambda: self.flask_app.run(
+                host=self.config["server"]["host"], port=port,
+                debug=False, use_reloader=False),
+            daemon=True).start()
         url = get_server_url(port)
-        self.status_badge.setText(f"● EN LIGNE  {url}")
-        self.sb_text.setText(f"Serveur actif → {url}")
+        self.status_pill.setText(f"● En ligne  {url}")
+        self.sb_text.setText(url)
         self.tab_qrcode.set_url(url)
 
     def _poll_events(self):
         try:
             while True:
-                event = self.event_queue.get_nowait()
-                self.bridge.new_event.emit(event)
+                self.bridge.new_event.emit(self.event_queue.get_nowait())
         except queue.Empty:
             pass
 
     def _dispatch(self, event: dict):
-        t = event.get("type")
-        d = event.get("data", {})
-        if t == "upload":
-            self.tab_transfers.add_event("upload", d)
+        t, d = event.get("type"), event.get("data", {})
+        if t in ("upload","delete"):
+            self.tab_transfers.add_event(t, d)
             self.tab_files.refresh(self.config["shared_folder"])
-        elif t == "download":
-            self.tab_transfers.add_event("download", d)
-        elif t == "delete":
-            self.tab_transfers.add_event("delete", d)
-            self.tab_files.refresh(self.config["shared_folder"])
-        elif t == "connection":
-            self.tab_transfers.add_event("connection", d)
+        elif t in ("download","connection"):
+            self.tab_transfers.add_event(t, d)
 
-    def reload_config(self, new_config: dict):
-        self.config = new_config
-        url = get_server_url(new_config["server"]["port"])
+    def reload_config(self, cfg: dict):
+        self.config = cfg
+        url = get_server_url(cfg["server"]["port"])
         self.tab_qrcode.set_url(url)
-        self.sb_text.setText(f"Config mise à jour → {url}")
+        self.sb_text.setText(url)
 
-    def closeEvent(self, event):
-        reply = QMessageBox.question(
-            self, "Quitter",
-            "Arrêter le serveur et quitter ?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            event.accept()
-        else:
-            event.ignore()
+    def closeEvent(self, e):
+        r = QMessageBox.question(self, "Quitter", "Arrêter le serveur et quitter ?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        e.accept() if r == QMessageBox.StandardButton.Yes else e.ignore()
 
 
 def run_app():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    window = AppWindow()
-    window.show()
+    w = AppWindow(); w.show()
     sys.exit(app.exec())
