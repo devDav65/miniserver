@@ -5,20 +5,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QColor, QTextCursor, QTextCharFormat, QFont, QCursor
 from PyQt6.QtCore import Qt
 
-BG      = "#0f0f13"
-SURFACE = "#16161d"
-BORDER  = "#25252f"
-ACCENT  = "#6c8fff"
-TEXT    = "#e8e8f0"
-MUTED   = "#5a5a72"
+from gui.theme import get_colors
 
-EVT_COLORS = {
-    "upload":     "#4ade80",
-    "download":   "#60a5fa",
-    "delete":     "#f87171",
-    "connection": "#94a3b8",
-    "system":     "#3a3a4e",
-}
+
 EVT_LABELS = {
     "upload":     "UPLOAD",
     "download":   "DOWNLOAD",
@@ -27,51 +16,120 @@ EVT_LABELS = {
     "system":     "SYSTEM",
 }
 
-STYLE = f"""
-QWidget {{ background-color: {BG}; }}
+# Event colors are semantic and consistent across themes
+EVT_COLORS_DARK = {
+    "upload":     "#4ade80",
+    "download":   "#60a5fa",
+    "delete":     "#f87171",
+    "connection": "#94a3b8",
+    "system":     "#3a3a58",
+}
+EVT_COLORS_LIGHT = {
+    "upload":     "#15803d",
+    "download":   "#2563eb",
+    "delete":     "#dc2626",
+    "connection": "#64748b",
+    "system":     "#9090b8",
+}
+
+
+def _make_style(c: dict) -> str:
+    return f"""
+QWidget {{
+    background-color: {c['bg']};
+    font-family: {c['sans']};
+}}
 QFrame#toolbar {{
-    background-color: {SURFACE};
-    border-bottom: 1px solid {BORDER};
-    min-height: 56px; max-height: 56px;
+    background-color: {c['surface']};
+    border-bottom: 1px solid {c['border']};
+    min-height: 54px;
+    max-height: 54px;
 }}
-QLabel#title  {{ color: {TEXT}; font-size: 15px; font-weight: 600; }}
-QLabel#evtcount {{ color: {MUTED}; font-size: 12px; }}
+QLabel#title {{
+    color: {c['text']};
+    font-size: 14px;
+    font-weight: 700;
+}}
+QLabel#evtcount {{
+    color: {c['muted']};
+    font-size: 11px;
+    background: {c['surface2']};
+    border: 1px solid {c['border']};
+    border-radius: 8px;
+    padding: 2px 10px;
+}}
 QPushButton#clear-btn {{
-    background: transparent; color: {MUTED};
-    border: 1px solid {BORDER}; border-radius: 6px;
-    padding: 6px 16px; font-size: 12px;
+    background: transparent;
+    color: {c['muted']};
+    border: 1px solid {c['border']};
+    border-radius: 7px;
+    padding: 6px 18px;
+    font-size: 12px;
+    font-weight: 500;
 }}
-QPushButton#clear-btn:hover {{ color: {TEXT}; border-color: #3a3a4e; }}
+QPushButton#clear-btn:hover {{
+    color: {c['text']};
+    border-color: {c['border2']};
+    background: {c['surface2']};
+}}
 QTextEdit {{
-    background-color: {BG}; color: #9090a8; border: none;
-    font-family: 'JetBrains Mono','SF Mono','Consolas',monospace;
-    font-size: 12px; padding: 14px 20px; line-height: 1.6;
-    selection-background-color: #1c1c26;
+    background-color: {c['bg']};
+    color: {c['text2']};
+    border: none;
+    font-family: {c['mono']};
+    font-size: 12px;
+    padding: 16px 22px;
+    selection-background-color: {c['surface3']};
 }}
-QScrollBar:vertical {{ background:{BG}; width:4px; }}
-QScrollBar::handle:vertical {{ background:{BORDER}; border-radius:2px; min-height:20px; }}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}
+QScrollBar:vertical {{
+    background: {c['bg']};
+    width: 5px;
+    border-radius: 3px;
+}}
+QScrollBar::handle:vertical {{
+    background: {c['border2']};
+    border-radius: 3px;
+    min-height: 24px;
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 """
 
+
 class TransfersTab(QWidget):
-    def __init__(self):
+    def __init__(self, colors: dict = None):
         super().__init__()
-        self.setStyleSheet(STYLE)
+        self._c = colors or get_colors(True)
+        self._dark = True
         self._count = 0
+        self.setStyleSheet(_make_style(self._c))
         self._build()
 
-    def _build(self):
-        lay = QVBoxLayout(self); lay.setContentsMargins(0,0,0,0); lay.setSpacing(0)
+    def apply_theme(self, colors: dict):
+        self._dark = colors.get("bg", "#0b0b0f") == get_colors(True)["bg"]
+        self._c = colors
+        self.setStyleSheet(_make_style(colors))
 
+    def _build(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        # Toolbar
         tb = QFrame(); tb.setObjectName("toolbar")
-        tbl = QHBoxLayout(tb); tbl.setContentsMargins(22,0,22,0); tbl.setSpacing(12)
-        QLabel("Journal des transferts", objectName="title").setParent(tb)
-        title = QLabel("Journal des transferts"); title.setObjectName("title"); tbl.addWidget(title)
-        self.cnt_lbl = QLabel("0 événement"); self.cnt_lbl.setObjectName("evtcount"); tbl.addWidget(self.cnt_lbl)
+        tbl = QHBoxLayout(tb); tbl.setContentsMargins(24, 0, 20, 0); tbl.setSpacing(10)
+
+        title = QLabel("Journal des transferts"); title.setObjectName("title")
+        tbl.addWidget(title)
+
+        self.cnt_lbl = QLabel("0 événement")
+        self.cnt_lbl.setObjectName("evtcount")
+        tbl.addWidget(self.cnt_lbl)
         tbl.addStretch()
+
         btn = QPushButton("Effacer"); btn.setObjectName("clear-btn")
         btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        btn.clicked.connect(self._clear); tbl.addWidget(btn)
+        btn.clicked.connect(self._clear)
+        tbl.addWidget(btn)
         lay.addWidget(tb)
 
         self.log = QTextEdit(); self.log.setReadOnly(True)
@@ -90,33 +148,40 @@ class TransfersTab(QWidget):
             msg = f"{data.get('ip','?')}"
         self._write(evt, msg, ts)
         self._count += 1
-        self.cnt_lbl.setText(f"{self._count} événement{'s' if self._count>1 else ''}")
+        self.cnt_lbl.setText(f"{self._count} événement{'s' if self._count > 1 else ''}")
 
     def _write(self, evt: str, msg: str, ts: str):
         c = self.log.textCursor()
         c.movePosition(QTextCursor.MoveOperation.End)
 
+        evt_colors = EVT_COLORS_DARK if self._c["bg"] < "#808080" else EVT_COLORS_LIGHT
+
         # Timestamp
         if ts:
-            fmt = QTextCharFormat(); fmt.setForeground(QColor("#2e2e40"))
-            c.setCharFormat(fmt); c.insertText(f"{ts}   ")
+            fmt = QTextCharFormat()
+            fmt.setForeground(QColor(self._c["dimmer"]))
+            c.setCharFormat(fmt)
+            c.insertText(f"{ts}   ")
 
         # Badge
-        color = EVT_COLORS.get(evt, MUTED)
+        color = evt_colors.get(evt, self._c["muted"])
         fmt = QTextCharFormat()
         fmt.setForeground(QColor(color))
         f = QFont(); f.setWeight(QFont.Weight.Bold); fmt.setFont(f)
         c.setCharFormat(fmt)
-        c.insertText(f"{EVT_LABELS.get(evt,'·'):<10}")
+        c.insertText(f"{EVT_LABELS.get(evt, '·'):<10}")
 
         # Message
-        fmt = QTextCharFormat(); fmt.setForeground(QColor("#5a5a78"))
-        c.setCharFormat(fmt); c.insertText(f" {msg}\n")
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(self._c["text2"]))
+        c.setCharFormat(fmt)
+        c.insertText(f" {msg}\n")
 
         self.log.setTextCursor(c)
         self.log.ensureCursorVisible()
 
     def _clear(self):
-        self.log.clear(); self._count = 0
+        self.log.clear()
+        self._count = 0
         self.cnt_lbl.setText("0 événement")
         self._write("system", "Journal effacé.", "")
