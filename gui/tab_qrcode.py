@@ -1,107 +1,199 @@
-import tkinter as tk
-from tkinter import ttk, messagebox
-import threading
+import threading, webbrowser
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QApplication
+)
+from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer
+from PyQt6.QtGui import QPixmap, QCursor
+
+from gui.theme import get_colors
 
 
-class QRCodeTab:
-    """
-    Onglet 'QR Code' — affiche le QR code de l'URL du serveur.
-    Le QR est généré dans un thread pour ne pas bloquer la GUI.
-    """
+def _make_style(c: dict) -> str:
+    return f"""
+QWidget {{
+    background-color: {c['bg']};
+    font-family: {c['sans']};
+}}
+QLabel#page-title {{
+    color: {c['text']};
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+}}
+QLabel#page-sub {{
+    color: {c['muted']};
+    font-size: 12px;
+    font-weight: 400;
+}}
+QLabel#url-chip {{
+    color: {c['accent']};
+    background: {c['accent_dim']};
+    border: 1px solid {c['accent_mid']};
+    border-radius: 10px;
+    padding: 9px 22px;
+    font-family: {c['mono']};
+    font-size: 13px;
+}}
+QLabel#qr-box {{
+    background: #ffffff;
+    border-radius: 18px;
+    padding: 18px;
+}}
+QPushButton#btn-accent {{
+    background: {c['accent_dim']};
+    color: {c['accent']};
+    border: 1px solid {c['accent_mid']};
+    border-radius: 9px;
+    padding: 10px 26px;
+    font-size: 13px;
+    font-weight: 600;
+}}
+QPushButton#btn-accent:hover {{
+    background: {c['accent_mid']};
+    border-color: {c['accent']};
+}}
+QPushButton#btn-ghost {{
+    background: transparent;
+    color: {c['muted']};
+    border: 1px solid {c['border2']};
+    border-radius: 9px;
+    padding: 10px 26px;
+    font-size: 13px;
+    font-weight: 500;
+}}
+QPushButton#btn-ghost:hover {{
+    color: {c['text']};
+    border-color: {c['border2']};
+    background: {c['surface2']};
+}}
+"""
 
-    def __init__(self, parent: ttk.Notebook, config: dict):
+
+class _Sig(QObject):
+    done = pyqtSignal(bytes)
+    fail = pyqtSignal(str)
+
+
+class QRCodeTab(QWidget):
+    def __init__(self, config, colors: dict = None):
+        super().__init__()
         self.config = config
-        self.current_url = ""
-        self.frame = tk.Frame(parent, bg="#f5f5f4")
+        self.url = ""
+        self._c = colors or get_colors(True)
+        self.setStyleSheet(_make_style(self._c))
         self._build()
 
+    def apply_theme(self, colors: dict):
+        self._c = colors
+        self.setStyleSheet(_make_style(colors))
+
     def _build(self):
+        lay = QVBoxLayout(self)
+        lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.setSpacing(0)
+        lay.setContentsMargins(48, 56, 48, 56)
 
-        # ── Titre ─────────────────────────────────────────────
-        tk.Label(
-            self.frame, text="Scanne ce QR code pour accéder au serveur",
-            font=("Helvetica", 12), bg="#f5f5f4", fg="#1c1c1a"
-        ).pack(pady=(28, 6))
+        # Title block
+        title = QLabel("Scanner pour se connecter")
+        title.setObjectName("page-title")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(title)
 
-        # ── URL texte ─────────────────────────────────────────
-        self.url_label = tk.Label(
-            self.frame, text="Chargement…",
-            font=("Courier", 12), bg="#f5f5f4", fg="#2563eb",
-            cursor="hand2"
+        lay.addSpacing(6)
+        sub = QLabel("Tous les appareils sur le même Wi-Fi peuvent se connecter")
+        sub.setObjectName("page-sub")
+        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(sub)
+
+        lay.addSpacing(24)
+
+        # URL chip
+        self.url_chip = QLabel("En attente…")
+        self.url_chip.setObjectName("url-chip")
+        self.url_chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.url_chip.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.url_chip.mousePressEvent = lambda _: webbrowser.open(self.url) if self.url else None
+        lay.addWidget(self.url_chip, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        lay.addSpacing(28)
+
+        # QR code display
+        self.qr_lbl = QLabel()
+        self.qr_lbl.setObjectName("qr-box")
+        self.qr_lbl.setFixedSize(236, 236)
+        self.qr_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.qr_lbl.setText("Génération…")
+        self.qr_lbl.setStyleSheet(
+            "QLabel { background:#ffffff; border-radius:18px; color:#b0b0b0; font-size:12px; }"
         )
-        self.url_label.pack(pady=(0, 16))
-        self.url_label.bind("<Button-1>", lambda e: self._open_browser())
+        lay.addWidget(self.qr_lbl, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # ── Image QR ──────────────────────────────────────────
-        self.qr_canvas = tk.Canvas(
-            self.frame, width=220, height=220,
-            bg="#ffffff", highlightthickness=1,
-            highlightbackground="#e2e2e0"
-        )
-        self.qr_canvas.pack(pady=(0, 16))
+        lay.addSpacing(32)
 
-        self.qr_placeholder = self.qr_canvas.create_text(
-            110, 110, text="Génération…",
-            font=("Helvetica", 11), fill="#a8a8a4"
-        )
+        # Action buttons
+        btns = QHBoxLayout(); btns.setSpacing(10)
+        self.btn_open = QPushButton("Ouvrir dans le navigateur")
+        self.btn_open.setObjectName("btn-accent")
+        self.btn_open.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_open.clicked.connect(lambda: webbrowser.open(self.url) if self.url else None)
+        btns.addWidget(self.btn_open)
 
-        # ── Boutons ───────────────────────────────────────────
-        btn_frame = tk.Frame(self.frame, bg="#f5f5f4")
-        btn_frame.pack()
-
-        tk.Button(
-            btn_frame, text="Ouvrir dans le navigateur",
-            font=("Helvetica", 10), relief="flat",
-            bg="#2563eb", fg="#ffffff", cursor="hand2",
-            padx=14, pady=6,
-            command=self._open_browser
-        ).pack(side="left", padx=6)
-
-        tk.Button(
-            btn_frame, text="Copier l'URL",
-            font=("Helvetica", 10), relief="flat",
-            bg="#f5f5f4", fg="#2563eb", cursor="hand2",
-            padx=14, pady=6,
-            command=self._copy_url
-        ).pack(side="left", padx=6)
+        self.btn_copy = QPushButton("Copier l'URL")
+        self.btn_copy.setObjectName("btn-ghost")
+        self.btn_copy.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_copy.clicked.connect(self._copy)
+        btns.addWidget(self.btn_copy)
+        lay.addLayout(btns)
 
     def set_url(self, url: str):
-        """
-        Met à jour l'URL et régénère le QR code.
-        Appelé depuis app_window après démarrage du serveur.
-        """
-        self.current_url = url
-        self.url_label.config(text=url)
-        # Génère dans un thread pour ne pas geler la GUI
-        threading.Thread(target=self._generate_qr, daemon=True).start()
+        self.url = url
+        self.url_chip.setText(url)
+        self._sig = _Sig()
+        self._sig.done.connect(self._show)
+        self._sig.fail.connect(lambda e: self.qr_lbl.setText(f"Erreur : {e}"))
+        threading.Thread(target=self._gen, daemon=True).start()
 
-    def _generate_qr(self):
-        """Génère le QR et l'affiche dans le canvas (thread séparé)."""
+    def _gen(self):
         try:
-            from core.qr_generator import generate_qr_tkinter
-            photo = generate_qr_tkinter(self.current_url, size=200)
-            if photo:
-                # Retour au thread principal pour toucher les widgets
-                self.frame.after(0, lambda: self._show_qr(photo))
+            import qrcode, io
+            qr = qrcode.QRCode(
+                version=None,
+                error_correction=qrcode.constants.ERROR_CORRECT_M,
+                box_size=8, border=2
+            )
+            qr.add_data(self.url); qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            buf = io.BytesIO(); img.save(buf, format="PNG")
+            self._sig.done.emit(buf.getvalue())
         except Exception as e:
-            self.frame.after(0, lambda: self.qr_canvas.itemconfig(
-                self.qr_placeholder, text=f"Erreur QR : {e}"
+            self._sig.fail.emit(str(e))
+
+    def _show(self, data: bytes):
+        px = QPixmap(); px.loadFromData(data)
+        px = px.scaled(
+            200, 200,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+        self.qr_lbl.setPixmap(px)
+
+    def _copy(self):
+        if self.url:
+            QApplication.clipboard().setText(self.url)
+            orig = self.btn_copy.text()
+            self.btn_copy.setText("Copié ✓")
+            self.btn_copy.setStyleSheet(f"""
+                QPushButton {{
+                    background: {self._c['success']}18;
+                    color: {self._c['success']};
+                    border: 1px solid {self._c['success']}40;
+                    border-radius: 9px;
+                    padding: 10px 26px;
+                    font-size: 13px;
+                    font-weight: 600;
+                }}
+            """)
+            QTimer.singleShot(1800, lambda: (
+                self.btn_copy.setText(orig),
+                self.btn_copy.setStyleSheet("")
             ))
-
-    def _show_qr(self, photo):
-        """Affiche l'image QR dans le canvas (thread principal)."""
-        # Garde une référence pour éviter le garbage collection
-        self._photo = photo
-        self.qr_canvas.delete("all")
-        self.qr_canvas.create_image(110, 110, image=photo)
-
-    def _open_browser(self):
-        if self.current_url:
-            import webbrowser
-            webbrowser.open(self.current_url)
-
-    def _copy_url(self):
-        if self.current_url:
-            self.frame.clipboard_clear()
-            self.frame.clipboard_append(self.current_url)
-            messagebox.showinfo("Copié", "URL copiée dans le presse-papiers !")

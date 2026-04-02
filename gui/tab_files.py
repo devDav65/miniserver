@@ -1,127 +1,276 @@
-import os
-import tkinter as tk
-from tkinter import ttk, messagebox
-import threading
-import webbrowser
+import os, webbrowser
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QTableWidget, QTableWidgetItem, QHeaderView, QFrame,
+    QAbstractItemView, QMenu, QMessageBox
+)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor, QCursor, QFont
 
-from core.file_manager import list_files
+from core.file_manager import list_files, delete_file
+from gui.theme import get_colors
 
 
-class FilesTab:
+def _make_style(c: dict) -> str:
+    return f"""
+QWidget {{
+    background-color: {c['bg']};
+    color: {c['text']};
+    font-family: {c['sans']};
+}}
+QFrame#toolbar {{
+    background-color: {c['surface']};
+    border-bottom: 1px solid {c['border']};
+    min-height: 54px;
+    max-height: 54px;
+}}
+QLabel#title {{
+    color: {c['text']};
+    font-size: 14px;
+    font-weight: 700;
+}}
+QLabel#count {{
+    color: {c['muted']};
+    font-size: 11px;
+    background: {c['surface2']};
+    border: 1px solid {c['border']};
+    border-radius: 8px;
+    padding: 2px 10px;
+}}
+QPushButton#btn-primary {{
+    background: {c['accent_dim']};
+    color: {c['accent']};
+    border: 1px solid {c['accent_mid']};
+    border-radius: 8px;
+    padding: 7px 18px;
+    font-size: 12px;
+    font-weight: 600;
+}}
+QPushButton#btn-primary:hover {{
+    background: {c['accent_mid']};
+    border-color: {c['accent']};
+}}
+QTableWidget {{
+    background-color: {c['bg']};
+    color: {c['text2']};
+    border: none;
+    gridline-color: transparent;
+    font-size: 13px;
+    outline: none;
+}}
+QTableWidget::item {{
+    padding: 0 18px;
+    border-bottom: 1px solid {c['border']};
+}}
+QTableWidget::item:selected {{
+    background-color: {c['surface2']};
+    color: {c['text']};
+}}
+QHeaderView::section {{
+    background-color: {c['surface']};
+    color: {c['muted']};
+    border: none;
+    border-bottom: 1px solid {c['border']};
+    padding: 9px 18px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    font-family: {c['sans']};
+}}
+QScrollBar:vertical {{
+    background: {c['bg']};
+    width: 5px;
+    border-radius: 3px;
+}}
+QScrollBar::handle:vertical {{
+    background: {c['border2']};
+    border-radius: 3px;
+    min-height: 24px;
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+QMenu {{
+    background-color: {c['surface']};
+    color: {c['text2']};
+    border: 1px solid {c['border2']};
+    border-radius: 10px;
+    padding: 6px;
+    font-size: 13px;
+    font-family: {c['sans']};
+}}
+QMenu::item {{
+    padding: 8px 20px;
+    border-radius: 6px;
+}}
+QMenu::item:selected {{
+    background-color: {c['surface2']};
+    color: {c['accent']};
+}}
+QMenu::separator {{
+    background: {c['border']};
+    height: 1px;
+    margin: 4px 8px;
+}}
+"""
+
+
+def _del_btn_style(c: dict) -> str:
+    return f"""
+        QPushButton {{
+            background: transparent;
+            color: {c['danger']};
+            border: 1px solid {c['danger']}2a;
+            border-radius: 7px;
+            padding: 5px 14px;
+            font-size: 12px;
+            font-weight: 500;
+            font-family: {c['sans']};
+        }}
+        QPushButton:hover {{
+            background: {c['danger']}12;
+            border-color: {c['danger']}55;
+        }}
     """
-    Onglet 'Fichiers' — affiche la liste des fichiers du dossier partagé.
-    Se rafraîchit automatiquement à chaque upload/suppression via la queue.
-    """
 
-    def __init__(self, parent: ttk.Notebook, config: dict):
+
+class FilesTab(QWidget):
+    def __init__(self, config: dict, colors: dict = None):
+        super().__init__()
         self.config = config
-        self.frame = tk.Frame(parent, bg="#f5f5f4")
+        self._c = colors or get_colors(True)
+        self.setStyleSheet(_make_style(self._c))
         self._build()
         self.refresh(config["shared_folder"])
 
+    def apply_theme(self, colors: dict):
+        self._c = colors
+        self.setStyleSheet(_make_style(colors))
+        self.refresh(self.config["shared_folder"])
+
     def _build(self):
-        """Construit le tableau de fichiers avec scrollbar."""
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
 
-        # ── Toolbar ───────────────────────────────────────────
-        toolbar = tk.Frame(self.frame, bg="#ffffff", height=44)
-        toolbar.pack(fill="x", side="top")
-        toolbar.pack_propagate(False)
+        # Toolbar
+        tb_frame = QFrame(); tb_frame.setObjectName("toolbar")
+        tb = QHBoxLayout(tb_frame); tb.setContentsMargins(24, 0, 20, 0); tb.setSpacing(10)
 
-        tk.Label(toolbar, text="Fichiers partagés",
-                 font=("Helvetica", 12, "bold"),
-                 bg="#ffffff", fg="#1c1c1a").pack(side="left", padx=14)
+        lbl = QLabel("Fichiers partagés"); lbl.setObjectName("title")
+        tb.addWidget(lbl)
+        self.count_lbl = QLabel("—"); self.count_lbl.setObjectName("count")
+        tb.addWidget(self.count_lbl)
+        tb.addStretch()
 
-        tk.Button(
-            toolbar, text="Ouvrir le dossier",
-            font=("Helvetica", 10), relief="flat",
-            bg="#f5f5f4", fg="#2563eb", cursor="hand2",
-            command=self._open_folder
-        ).pack(side="right", padx=12)
+        btn_folder = QPushButton("Ouvrir le dossier"); btn_folder.setObjectName("btn-primary")
+        btn_folder.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        btn_folder.clicked.connect(self._open_folder)
+        tb.addWidget(btn_folder)
+        lay.addWidget(tb_frame)
 
-        tk.Frame(self.frame, bg="#e2e2e0", height=1).pack(fill="x")
+        # Table
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["NOM", "TAILLE", "MODIFIÉ LE", ""])
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setShowGrid(False)
+        self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._ctx_menu)
 
-        # ── Treeview ──────────────────────────────────────────
-        cols = ("name", "size", "modified")
-        self.tree = ttk.Treeview(
-            self.frame, columns=cols,
-            show="headings", selectmode="browse"
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(1, 100)
+        self.table.setColumnWidth(2, 164)
+        self.table.setColumnWidth(3, 126)
+        self.table.verticalHeader().setDefaultSectionSize(50)
+        lay.addWidget(self.table)
+
+        # Empty state
+        self.empty = QLabel(
+            "Aucun fichier partagé\n\nGlisse des fichiers sur la page web pour commencer."
         )
-
-        self.tree.heading("name",     text="Nom")
-        self.tree.heading("size",     text="Taille")
-        self.tree.heading("modified", text="Modifié le")
-
-        self.tree.column("name",     width=340, anchor="w")
-        self.tree.column("size",     width=90,  anchor="e")
-        self.tree.column("modified", width=140, anchor="center")
-
-        scrollbar = ttk.Scrollbar(self.frame, orient="vertical",
-                                  command=self.tree.yview)
-        self.tree.configure(yscrollcommand=scrollbar.set)
-
-        self.tree.pack(side="left", fill="both", expand=True, padx=(12, 0), pady=12)
-        scrollbar.pack(side="right", fill="y", pady=12, padx=(0, 12))
-
-        # ── Menu contextuel (clic droit) ──────────────────────
-        self.menu = tk.Menu(self.frame, tearoff=0)
-        self.menu.add_command(label="Télécharger", command=self._download_selected)
-        self.menu.add_command(label="Supprimer",   command=self._delete_selected)
-        self.tree.bind("<Button-3>", self._show_menu)
-
-        # ── Label "vide" ──────────────────────────────────────
-        self.empty_label = tk.Label(
-            self.frame,
-            text="Aucun fichier partagé\nGlisse des fichiers sur la page web pour commencer.",
-            font=("Helvetica", 11), bg="#f5f5f4", fg="#737370",
-            justify="center"
+        self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty.setStyleSheet(
+            f"color: {self._c['muted']}; font-size: 13px; line-height: 2; "
+            f"font-family: {self._c['sans']};"
         )
+        self.empty.hide()
+        lay.addWidget(self.empty)
 
     def refresh(self, folder: str):
-        """Recharge la liste depuis le disque. Thread-safe via after()."""
-        def _do():
-            files = list_files(folder)
-            # Vider le tree
-            for item in self.tree.get_children():
-                self.tree.delete(item)
-            if files:
-                self.empty_label.place_forget()
-                for f in files:
-                    self.tree.insert("", "end", iid=f["name"],
-                                     values=(f["name"], f["size_str"], f["modified"]))
-            else:
-                self.empty_label.place(relx=0.5, rely=0.5, anchor="center")
-        self.frame.after(0, _do)
+        files = list_files(folder)
+        self.table.setRowCount(0)
 
-    # ─── Actions ──────────────────────────────────────────────
+        self.empty.setStyleSheet(
+            f"color: {self._c['muted']}; font-size: 13px; line-height: 2; "
+            f"font-family: {self._c['sans']};"
+        )
+
+        if not files:
+            self.table.hide(); self.empty.show()
+            self.count_lbl.setText("Aucun fichier")
+            return
+
+        self.empty.hide(); self.table.show()
+        n = len(files)
+        self.count_lbl.setText(f"{n} fichier{'s' if n > 1 else ''}")
+
+        for f in files:
+            r = self.table.rowCount(); self.table.insertRow(r)
+
+            n_item = QTableWidgetItem(f"  {f['name']}")
+            n_item.setForeground(QColor(self._c["text"]))
+            self.table.setItem(r, 0, n_item)
+
+            s_item = QTableWidgetItem(f['size_str'])
+            s_item.setForeground(QColor(self._c["muted"]))
+            s_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.table.setItem(r, 1, s_item)
+
+            d_item = QTableWidgetItem(f['modified'])
+            d_item.setForeground(QColor(self._c["muted"]))
+            d_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(r, 2, d_item)
+
+            del_btn = QPushButton("Supprimer")
+            del_btn.setStyleSheet(_del_btn_style(self._c))
+            del_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            del_btn.clicked.connect(lambda _, name=f['name']: self._delete(name))
+            self.table.setCellWidget(r, 3, del_btn)
+
+    def _ctx_menu(self, pos):
+        row = self.table.rowAt(pos.y())
+        if row < 0: return
+        name = self.table.item(row, 0).text().strip()
+        menu = QMenu(self)
+        menu.addAction("Télécharger", lambda: self._download(name))
+        menu.addSeparator()
+        act = menu.addAction("Supprimer")
+        act.triggered.connect(lambda: self._delete(name))
+        menu.exec(self.table.viewport().mapToGlobal(pos))
 
     def _open_folder(self):
-        path = os.path.abspath(self.config["shared_folder"])
-        webbrowser.open(f"file://{path}")
+        webbrowser.open(f"file://{os.path.abspath(self.config['shared_folder'])}")
 
-    def _show_menu(self, event):
-        item = self.tree.identify_row(event.y)
-        if item:
-            self.tree.selection_set(item)
-            self.menu.post(event.x_root, event.y_root)
-
-    def _download_selected(self):
-        sel = self.tree.selection()
-        if not sel:
-            return
-        port = self.config["server"]["port"]
+    def _download(self, name: str):
         from core.network import get_local_ip
-        url = f"http://{get_local_ip()}:{port}/download/{sel[0]}"
-        webbrowser.open(url)
+        webbrowser.open(
+            f"http://{get_local_ip()}:{self.config['server']['port']}/download/{name}"
+        )
 
-    def _delete_selected(self):
-        sel = self.tree.selection()
-        if not sel:
-            return
-        name = sel[0]
-        if messagebox.askyesno("Supprimer", f"Supprimer « {name} » ?"):
-            from core.file_manager import delete_file
-            ok = delete_file(self.config["shared_folder"], name)
-            if ok:
-                self.tree.delete(name)
+    def _delete(self, name: str):
+        r = QMessageBox.question(
+            self, "Supprimer", f"Supprimer « {name} » ?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if r == QMessageBox.StandardButton.Yes:
+            if delete_file(self.config["shared_folder"], name):
+                self.refresh(self.config["shared_folder"])
             else:
-                messagebox.showerror("Erreur", "Impossible de supprimer le fichier.")
+                QMessageBox.critical(self, "Erreur", "Impossible de supprimer le fichier.")

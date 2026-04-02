@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Connexion — Droply{% endblock %}
+
+{% block content %}
+<div style="max-width:340px;margin:80px auto;background:#fff;border:1px solid #e2e2e0;border-radius:12px;padding:36px 32px;">
+  <h2 style="font-size:18px;font-weight:600;margin-bottom:6px;color:#1c1c1a;">Accès protégé</h2>
+  <p style="font-size:13px;color:#737370;margin-bottom:24px;">Entre le PIN pour accéder au serveur.</p>
+
+  <div id="error-msg" style="display:none;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px;"></div>
+
+  <input
+    type="password" id="pin-input" placeholder="PIN"
+    style="width:100%;padding:10px 14px;border:1px solid #e2e2e0;border-radius:8px;font-size:15px;outline:none;margin-bottom:14px;"
+    autofocus
+  />
+
+  <button
+    onclick="submitPin()"
+    style="width:100%;padding:10px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer;">
+    Connexion
+  </button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById("pin-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") submitPin();
+});
+
+function submitPin() {
+  const pin = document.getElementById("pin-input").value.trim();
+  if (!pin) return;
+
+  fetch("/auth", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pin })
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.success) {
+      window.location.href = "/";
+    } else {
+      const err = document.getElementById("error-msg");
+      err.textContent = data.error || "PIN incorrect";
+      err.style.display = "block";
+      document.getElementById("pin-input").value = "";
+      document.getElementById("pin-input").focus();
+    }
+  })
+  .catch(() => {
+    document.getElementById("error-msg").textContent = "Erreur réseau";
+    document.getElementById("error-msg").style.display = "block";
+  });
+}
+</script>
+{% endblock %}

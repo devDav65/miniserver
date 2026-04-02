@@ -1,165 +1,278 @@
-import json
-import os
-import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+import json, os
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+    QLabel, QLineEdit, QPushButton, QFrame,
+    QRadioButton, QButtonGroup, QFileDialog, QMessageBox
+)
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QCursor
+
+from gui.theme import get_colors
 
 
-class SettingsTab:
-    """
-    Onglet 'Paramètres' — permet de modifier port, dossier partagé
-    et mode d'authentification. Sauvegarde dans config.json.
-    """
+def _make_style(c: dict) -> str:
+    return f"""
+QWidget {{
+    background-color: {c['bg']};
+    color: {c['text']};
+    font-family: {c['sans']};
+}}
+QFrame#card {{
+    background-color: {c['surface']};
+    border: 1px solid {c['border']};
+    border-radius: 16px;
+}}
+QFrame#card-inner {{
+    background: transparent;
+}}
+QLabel#section-title {{
+    color: {c['text']};
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+}}
+QLabel#section-sub {{
+    color: {c['muted']};
+    font-size: 12px;
+    font-weight: 400;
+}}
+QLabel#field-lbl {{
+    color: {c['muted']};
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    font-family: {c['sans']};
+}}
+QLabel#hint {{
+    color: {c['dimmer']};
+    font-size: 11px;
+}}
+QLineEdit {{
+    background: {c['surface2']};
+    color: {c['text']};
+    border: 1px solid {c['border']};
+    border-radius: 9px;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-family: {c['mono']};
+    selection-background-color: {c['surface3']};
+}}
+QLineEdit:focus {{
+    border-color: {c['accent']};
+    background: {c['bg']};
+}}
+QLineEdit:disabled {{
+    color: {c['dimmer']};
+    background: {c['surface']};
+    border-color: {c['border']};
+}}
+QRadioButton {{
+    color: {c['muted']};
+    font-size: 13px;
+    spacing: 8px;
+    font-family: {c['sans']};
+}}
+QRadioButton:checked {{
+    color: {c['accent']};
+    font-weight: 600;
+}}
+QRadioButton::indicator {{
+    width: 15px;
+    height: 15px;
+    border-radius: 8px;
+    border: 1.5px solid {c['border2']};
+    background: transparent;
+}}
+QRadioButton::indicator:checked {{
+    background: {c['accent']};
+    border-color: {c['accent']};
+}}
+QRadioButton::indicator:hover {{
+    border-color: {c['accent']};
+}}
+QPushButton#btn-save {{
+    background: {c['accent_dim']};
+    color: {c['accent']};
+    border: 1px solid {c['accent_mid']};
+    border-radius: 9px;
+    padding: 12px 40px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: {c['sans']};
+}}
+QPushButton#btn-save:hover {{
+    background: {c['accent_mid']};
+    border-color: {c['accent']};
+}}
+QPushButton#btn-browse {{
+    background: {c['surface2']};
+    color: {c['muted']};
+    border: 1px solid {c['border']};
+    border-radius: 9px;
+    padding: 10px 12px;
+    font-size: 13px;
+    min-width: 36px;
+    font-family: {c['sans']};
+}}
+QPushButton#btn-browse:hover {{
+    color: {c['text']};
+    border-color: {c['border2']};
+    background: {c['surface3']};
+}}
+QFrame#divider {{
+    background: {c['border']};
+    max-height: 1px;
+    border: none;
+}}
+"""
 
-    def __init__(self, parent: ttk.Notebook, config: dict, app_window):
+
+class SettingsTab(QWidget):
+    def __init__(self, config, app_window, colors: dict = None):
+        super().__init__()
         self.config = config
-        self.app_window = app_window   # pour appeler reload_config()
-        self.frame = tk.Frame(parent, bg="#f5f5f4")
+        self.app_window = app_window
+        self._c = colors or get_colors(True)
+        self.setStyleSheet(_make_style(self._c))
         self._build()
 
+    def apply_theme(self, colors: dict):
+        self._c = colors
+        self.setStyleSheet(_make_style(colors))
+
     def _build(self):
+        outer = QVBoxLayout(self)
+        outer.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        outer.setContentsMargins(40, 36, 40, 36)
 
-        # ── Conteneur centré ──────────────────────────────────
-        inner = tk.Frame(self.frame, bg="#ffffff",
-                         relief="flat", bd=0)
-        inner.place(relx=0.5, rely=0.5, anchor="center",
-                    width=460, height=370)
+        card = QFrame(); card.setObjectName("card"); card.setFixedWidth(540)
+        cl = QVBoxLayout(card); cl.setContentsMargins(36, 32, 36, 32); cl.setSpacing(24)
 
-        tk.Label(inner, text="Paramètres du serveur",
-                 font=("Helvetica", 13, "bold"),
-                 bg="#ffffff", fg="#1c1c1a").grid(
-                     row=0, column=0, columnspan=3,
-                     sticky="w", padx=24, pady=(22, 18))
+        # Title block
+        title_row = QVBoxLayout(); title_row.setSpacing(4)
+        title = QLabel("Paramètres du serveur"); title.setObjectName("section-title")
+        title_row.addWidget(title)
+        sub = QLabel("Configuration du serveur local et des accès")
+        sub.setObjectName("section-sub")
+        title_row.addWidget(sub)
+        cl.addLayout(title_row)
 
-        # ── Port ──────────────────────────────────────────────
-        self._row_label(inner, 1, "Port")
-        self.port_var = tk.StringVar(value=str(self.config["server"]["port"]))
-        tk.Entry(inner, textvariable=self.port_var,
-                 font=("Helvetica", 11), width=10,
-                 relief="solid", bd=1).grid(
-                     row=1, column=1, sticky="w", pady=8)
-        tk.Label(inner, text="(redémarrage requis)",
-                 font=("Helvetica", 9), bg="#ffffff",
-                 fg="#a8a8a4").grid(row=1, column=2, sticky="w", padx=8)
+        div = QFrame(); div.setObjectName("divider"); cl.addWidget(div)
 
-        # ── Dossier partagé ───────────────────────────────────
-        self._row_label(inner, 2, "Dossier partagé")
-        self.folder_var = tk.StringVar(value=self.config["shared_folder"])
-        folder_frame = tk.Frame(inner, bg="#ffffff")
-        folder_frame.grid(row=2, column=1, columnspan=2, sticky="ew", pady=8)
+        grid = QGridLayout()
+        grid.setVerticalSpacing(20)
+        grid.setHorizontalSpacing(18)
+        grid.setColumnMinimumWidth(0, 136)
 
-        tk.Entry(folder_frame, textvariable=self.folder_var,
-                 font=("Helvetica", 10), width=24,
-                 relief="solid", bd=1).pack(side="left")
+        # ── Port
+        self._lbl(grid, 0, "PORT")
+        pr = QHBoxLayout(); pr.setSpacing(10)
+        self.inp_port = QLineEdit(str(self.config["server"]["port"]))
+        self.inp_port.setFixedWidth(96)
+        pr.addWidget(self.inp_port)
+        h = QLabel("Redémarrage requis pour appliquer"); h.setObjectName("hint")
+        pr.addWidget(h); pr.addStretch()
+        grid.addLayout(pr, 0, 1)
 
-        tk.Button(
-            folder_frame, text="…",
-            font=("Helvetica", 10), relief="flat",
-            bg="#f5f5f4", fg="#1c1c1a", cursor="hand2",
-            padx=6, command=self._browse_folder
-        ).pack(side="left", padx=4)
+        # ── Dossier partagé
+        self._lbl(grid, 1, "DOSSIER PARTAGÉ")
+        fr = QHBoxLayout(); fr.setSpacing(8)
+        self.inp_folder = QLineEdit(self.config["shared_folder"])
+        fr.addWidget(self.inp_folder)
+        bb = QPushButton("…"); bb.setObjectName("btn-browse"); bb.setFixedWidth(38)
+        bb.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        bb.clicked.connect(self._browse); fr.addWidget(bb)
+        grid.addLayout(fr, 1, 1)
 
-        # ── Mode auth ─────────────────────────────────────────
-        self._row_label(inner, 3, "Authentification")
-        self.auth_var = tk.StringVar(value=self.config["auth"]["mode"])
-        modes = [("Ouvert", "open"), ("PIN", "pin"), ("Token", "token")]
-        auth_frame = tk.Frame(inner, bg="#ffffff")
-        auth_frame.grid(row=3, column=1, columnspan=2, sticky="w", pady=8)
-        for label, val in modes:
-            tk.Radiobutton(
-                auth_frame, text=label, variable=self.auth_var, value=val,
-                font=("Helvetica", 10), bg="#ffffff",
-                command=self._toggle_pin_field
-            ).pack(side="left", padx=(0, 10))
+        # ── Authentification
+        self._lbl(grid, 2, "AUTHENTIFICATION")
+        ar = QHBoxLayout(); ar.setSpacing(18)
+        self.auth_grp = QButtonGroup(self)
+        for i, (lbl, val) in enumerate([("Ouvert", "open"), ("PIN", "pin"), ("Token", "token")]):
+            rb = QRadioButton(lbl); rb.setProperty("value", val)
+            if val == self.config["auth"]["mode"]: rb.setChecked(True)
+            rb.toggled.connect(self._toggle_pin)
+            self.auth_grp.addButton(rb, i); ar.addWidget(rb)
+        ar.addStretch()
+        grid.addLayout(ar, 2, 1)
 
-        # ── PIN ───────────────────────────────────────────────
-        self._row_label(inner, 4, "PIN / Token")
-        self.pin_var = tk.StringVar(value=self.config["auth"].get("pin", ""))
-        self.pin_entry = tk.Entry(inner, textvariable=self.pin_var,
-                                  font=("Helvetica", 11), width=20,
-                                  relief="solid", bd=1, show="●")
-        self.pin_entry.grid(row=4, column=1, sticky="w", pady=8)
-        self._toggle_pin_field()
+        # ── PIN / Token
+        self._lbl(grid, 3, "PIN / TOKEN")
+        self.inp_pin = QLineEdit(self.config["auth"].get("pin", ""))
+        self.inp_pin.setEchoMode(QLineEdit.EchoMode.Password)
+        self.inp_pin.setPlaceholderText("Non requis en mode Ouvert")
+        grid.addWidget(self.inp_pin, 3, 1)
 
-        # ── Taille max ────────────────────────────────────────
-        self._row_label(inner, 5, "Taille max (MB)")
-        self.maxsize_var = tk.StringVar(
-            value=str(self.config.get("max_file_size_mb", 500)))
-        tk.Entry(inner, textvariable=self.maxsize_var,
-                 font=("Helvetica", 11), width=10,
-                 relief="solid", bd=1).grid(
-                     row=5, column=1, sticky="w", pady=8)
+        # ── Taille maximale
+        self._lbl(grid, 4, "TAILLE MAX (MB)")
+        mr = QHBoxLayout()
+        self.inp_size = QLineEdit(str(self.config.get("max_file_size_mb", 500)))
+        self.inp_size.setFixedWidth(96)
+        mr.addWidget(self.inp_size); mr.addStretch()
+        grid.addLayout(mr, 4, 1)
 
-        # ── Séparateur ────────────────────────────────────────
-        tk.Frame(inner, bg="#e2e2e0", height=1).grid(
-            row=6, column=0, columnspan=3, sticky="ew",
-            padx=24, pady=(12, 0))
+        cl.addLayout(grid)
 
-        # ── Bouton sauvegarder ────────────────────────────────
-        tk.Button(
-            inner, text="Sauvegarder",
-            font=("Helvetica", 11), relief="flat",
-            bg="#2563eb", fg="#ffffff", cursor="hand2",
-            padx=18, pady=8,
-            command=self._save
-        ).grid(row=7, column=0, columnspan=3, pady=18)
+        div2 = QFrame(); div2.setObjectName("divider"); cl.addWidget(div2)
 
-        inner.columnconfigure(1, weight=1)
+        self.btn_save = QPushButton("Sauvegarder")
+        self.btn_save.setObjectName("btn-save")
+        self.btn_save.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_save.clicked.connect(self._save)
+        cl.addWidget(self.btn_save, alignment=Qt.AlignmentFlag.AlignCenter)
 
-    # ─── Helpers ──────────────────────────────────────────────
+        outer.addWidget(card)
+        self._toggle_pin()
 
-    def _row_label(self, parent, row, text):
-        tk.Label(parent, text=text,
-                 font=("Helvetica", 11), bg="#ffffff",
-                 fg="#1c1c1a", width=16, anchor="w").grid(
-                     row=row, column=0, sticky="w", padx=(24, 0), pady=8)
+    def _lbl(self, grid, row, text):
+        l = QLabel(text); l.setObjectName("field-lbl")
+        l.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        grid.addWidget(l, row, 0)
 
-    def _toggle_pin_field(self):
-        """Active/désactive le champ PIN selon le mode choisi."""
-        if self.auth_var.get() == "open":
-            self.pin_entry.config(state="disabled")
-        else:
-            self.pin_entry.config(state="normal")
+    def _toggle_pin(self):
+        btn = self.auth_grp.checkedButton()
+        self.inp_pin.setEnabled(bool(btn and btn.property("value") != "open"))
 
-    def _browse_folder(self):
-        path = filedialog.askdirectory(title="Choisir le dossier partagé")
-        if path:
-            self.folder_var.set(path)
+    def _browse(self):
+        p = QFileDialog.getExistingDirectory(self, "Choisir le dossier partagé")
+        if p: self.inp_folder.setText(p)
 
     def _save(self):
-        """Valide, met à jour config.json et notifie app_window."""
         try:
-            port = int(self.port_var.get())
-            assert 1024 <= port <= 65535
-        except (ValueError, AssertionError):
-            messagebox.showerror("Erreur", "Port invalide (1024–65535).")
+            port = int(self.inp_port.text()); assert 1024 <= port <= 65535
+        except:
+            QMessageBox.critical(self, "Erreur", "Port invalide (1024–65535).")
             return
-
         try:
-            max_mb = int(self.maxsize_var.get())
-            assert max_mb > 0
-        except (ValueError, AssertionError):
-            messagebox.showerror("Erreur", "Taille max invalide.")
+            max_mb = int(self.inp_size.text()); assert max_mb > 0
+        except:
+            QMessageBox.critical(self, "Erreur", "Taille max invalide.")
             return
-
-        folder = self.folder_var.get().strip()
+        folder = self.inp_folder.text().strip()
         if not folder:
-            messagebox.showerror("Erreur", "Le dossier partagé ne peut pas être vide.")
+            QMessageBox.critical(self, "Erreur", "Dossier vide.")
             return
         os.makedirs(folder, exist_ok=True)
-
-        # Mise à jour du dict config
-        self.config["server"]["port"]       = port
-        self.config["shared_folder"]        = folder
-        self.config["auth"]["mode"]         = self.auth_var.get()
-        self.config["auth"]["pin"]          = self.pin_var.get()
-        self.config["max_file_size_mb"]     = max_mb
-
-        # Sauvegarde sur disque
-        config_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "config.json")
-        with open(config_path, "w", encoding="utf-8") as f:
+        btn = self.auth_grp.checkedButton()
+        self.config.update({
+            "server": {**self.config["server"], "port": port},
+            "shared_folder": folder,
+            "auth": {"mode": btn.property("value") if btn else "open", "pin": self.inp_pin.text()},
+            "max_file_size_mb": max_mb,
+        })
+        cfg_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.json")
+        with open(cfg_path, "w", encoding="utf-8") as f:
             json.dump(self.config, f, indent=2, ensure_ascii=False)
-
-        # Notifie la fenêtre principale
         self.app_window.reload_config(self.config)
-        messagebox.showinfo("Sauvegardé", "Paramètres enregistrés.\nRedémarre l'app pour appliquer le changement de port.")
+
+        # Visual feedback
+        sc = self._c["success"]
+        self.btn_save.setText("Sauvegardé ✓")
+        self.btn_save.setStyleSheet(
+            f"background:{sc}18; color:{sc}; border:1px solid {sc}40; "
+            f"border-radius:9px; padding:12px 40px; font-size:13px; font-weight:600;"
+        )
+        QTimer.singleShot(2200, lambda: (
+            self.btn_save.setText("Sauvegarder"),
+            self.btn_save.setStyleSheet("")
+        ))

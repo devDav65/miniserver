@@ -6,7 +6,7 @@
   },
   "shared_folder": "./shared",
   "auth": {
-    "mode": "pin",
+    "mode": "open",
     "pin": "12345678"
   },
   "ui": {

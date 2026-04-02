@@ -1,119 +1,187 @@
-import tkinter as tk
-from tkinter import ttk
 from datetime import datetime
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QTextEdit
+)
+from PyQt6.QtGui import QColor, QTextCursor, QTextCharFormat, QFont, QCursor
+from PyQt6.QtCore import Qt
+
+from gui.theme import get_colors
 
 
-class TransfersTab:
-    """
-    Onglet 'Transferts' — journal en temps réel des événements :
-    connexions, uploads, téléchargements, suppressions.
-    Les événements arrivent via app_window._dispatch() depuis la queue.
-    """
+EVT_LABELS = {
+    "upload":     "UPLOAD",
+    "download":   "DOWNLOAD",
+    "delete":     "DELETE",
+    "connection": "CONNECT",
+    "system":     "SYSTEM",
+}
 
-    # Couleurs par type d'événement
-    COLORS = {
-        "upload":     "#16a34a",   # vert
-        "download":   "#2563eb",   # bleu
-        "delete":     "#dc2626",   # rouge
-        "connection": "#737370",   # gris
-    }
+# Event colors are semantic and consistent across themes
+EVT_COLORS_DARK = {
+    "upload":     "#4ade80",
+    "download":   "#60a5fa",
+    "delete":     "#f87171",
+    "connection": "#94a3b8",
+    "system":     "#3a3a58",
+}
+EVT_COLORS_LIGHT = {
+    "upload":     "#15803d",
+    "download":   "#2563eb",
+    "delete":     "#dc2626",
+    "connection": "#64748b",
+    "system":     "#9090b8",
+}
 
-    ICONS = {
-        "upload":     "↑",
-        "download":   "↓",
-        "delete":     "✕",
-        "connection": "→",
-    }
 
-    def __init__(self, parent: ttk.Notebook):
-        self.frame = tk.Frame(parent, bg="#f5f5f4")
+def _make_style(c: dict) -> str:
+    return f"""
+QWidget {{
+    background-color: {c['bg']};
+    font-family: {c['sans']};
+}}
+QFrame#toolbar {{
+    background-color: {c['surface']};
+    border-bottom: 1px solid {c['border']};
+    min-height: 54px;
+    max-height: 54px;
+}}
+QLabel#title {{
+    color: {c['text']};
+    font-size: 14px;
+    font-weight: 700;
+}}
+QLabel#evtcount {{
+    color: {c['muted']};
+    font-size: 11px;
+    background: {c['surface2']};
+    border: 1px solid {c['border']};
+    border-radius: 8px;
+    padding: 2px 10px;
+}}
+QPushButton#clear-btn {{
+    background: transparent;
+    color: {c['muted']};
+    border: 1px solid {c['border']};
+    border-radius: 7px;
+    padding: 6px 18px;
+    font-size: 12px;
+    font-weight: 500;
+}}
+QPushButton#clear-btn:hover {{
+    color: {c['text']};
+    border-color: {c['border2']};
+    background: {c['surface2']};
+}}
+QTextEdit {{
+    background-color: {c['bg']};
+    color: {c['text2']};
+    border: none;
+    font-family: {c['mono']};
+    font-size: 12px;
+    padding: 16px 22px;
+    selection-background-color: {c['surface3']};
+}}
+QScrollBar:vertical {{
+    background: {c['bg']};
+    width: 5px;
+    border-radius: 3px;
+}}
+QScrollBar::handle:vertical {{
+    background: {c['border2']};
+    border-radius: 3px;
+    min-height: 24px;
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+"""
+
+
+class TransfersTab(QWidget):
+    def __init__(self, colors: dict = None):
+        super().__init__()
+        self._c = colors or get_colors(True)
+        self._dark = True
+        self._count = 0
+        self.setStyleSheet(_make_style(self._c))
         self._build()
 
+    def apply_theme(self, colors: dict):
+        self._dark = colors.get("bg", "#0b0b0f") == get_colors(True)["bg"]
+        self._c = colors
+        self.setStyleSheet(_make_style(colors))
+
     def _build(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
 
-        # ── Toolbar ───────────────────────────────────────────
-        toolbar = tk.Frame(self.frame, bg="#ffffff", height=44)
-        toolbar.pack(fill="x", side="top")
-        toolbar.pack_propagate(False)
+        # Toolbar
+        tb = QFrame(); tb.setObjectName("toolbar")
+        tbl = QHBoxLayout(tb); tbl.setContentsMargins(24, 0, 20, 0); tbl.setSpacing(10)
 
-        tk.Label(toolbar, text="Journal des transferts",
-                 font=("Helvetica", 12, "bold"),
-                 bg="#ffffff", fg="#1c1c1a").pack(side="left", padx=14)
+        title = QLabel("Journal des transferts"); title.setObjectName("title")
+        tbl.addWidget(title)
 
-        tk.Button(
-            toolbar, text="Effacer",
-            font=("Helvetica", 10), relief="flat",
-            bg="#f5f5f4", fg="#737370", cursor="hand2",
-            command=self._clear
-        ).pack(side="right", padx=12)
+        self.cnt_lbl = QLabel("0 événement")
+        self.cnt_lbl.setObjectName("evtcount")
+        tbl.addWidget(self.cnt_lbl)
+        tbl.addStretch()
 
-        tk.Frame(self.frame, bg="#e2e2e0", height=1).pack(fill="x")
+        btn = QPushButton("Effacer"); btn.setObjectName("clear-btn")
+        btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        btn.clicked.connect(self._clear)
+        tbl.addWidget(btn)
+        lay.addWidget(tb)
 
-        # ── Zone de logs avec scrollbar ───────────────────────
-        container = tk.Frame(self.frame, bg="#f5f5f4")
-        container.pack(fill="both", expand=True, padx=12, pady=12)
+        self.log = QTextEdit(); self.log.setReadOnly(True)
+        lay.addWidget(self.log)
+        self._write("system", "Serveur démarré — en attente de connexions…", "")
 
-        self.text = tk.Text(
-            container,
-            font=("Courier", 11),
-            bg="#ffffff", fg="#1c1c1a",
-            relief="flat",
-            borderwidth=1,
-            state="disabled",
-            wrap="word",
-            cursor="arrow",
-        )
-        scrollbar = ttk.Scrollbar(container, orient="vertical",
-                                  command=self.text.yview)
-        self.text.configure(yscrollcommand=scrollbar.set)
-
-        self.text.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        # Tags de couleur pour chaque type d'événement
-        for evt_type, color in self.COLORS.items():
-            self.text.tag_configure(evt_type, foreground=color)
-        self.text.tag_configure("time", foreground="#a8a8a4")
-
-        self._log_system("Serveur démarré — en attente de connexions…")
-
-    def add_event(self, event_type: str, data: dict):
-        """
-        Ajoute une ligne dans le journal.
-        Appelé depuis app_window._dispatch() (thread principal).
-        """
-        icon = self.ICONS.get(event_type, "·")
-        time_str = datetime.now().strftime("%H:%M:%S")
-
-        if event_type == "upload":
-            msg = f"{icon} {data.get('ip','?')} — upload : {data.get('filename','?')} ({data.get('size',0)} o)"
-        elif event_type == "download":
-            msg = f"{icon} {data.get('ip','?')} — téléchargement : {data.get('filename','?')}"
-        elif event_type == "delete":
-            msg = f"{icon} {data.get('ip','?')} — suppression : {data.get('filename','?')}"
-        elif event_type == "connection":
-            msg = f"{icon} Connexion depuis {data.get('ip','?')}"
+    def add_event(self, evt: str, data: dict):
+        ts = datetime.now().strftime("%H:%M:%S")
+        if evt == "upload":
+            msg = f"{data.get('ip','?')}  ·  {data.get('filename','?')}  ({data.get('size',0)} o)"
+        elif evt == "download":
+            msg = f"{data.get('ip','?')}  ·  {data.get('filename','?')}"
+        elif evt == "delete":
+            msg = f"{data.get('ip','?')}  ·  {data.get('filename','?')}"
         else:
-            msg = f"· {event_type} : {data}"
+            msg = f"{data.get('ip','?')}"
+        self._write(evt, msg, ts)
+        self._count += 1
+        self.cnt_lbl.setText(f"{self._count} événement{'s' if self._count > 1 else ''}")
 
-        self._append_line(time_str, msg, event_type)
+    def _write(self, evt: str, msg: str, ts: str):
+        c = self.log.textCursor()
+        c.movePosition(QTextCursor.MoveOperation.End)
 
-    def _append_line(self, time_str: str, msg: str, tag: str):
-        """Insère une ligne colorée dans le widget Text."""
-        self.text.configure(state="normal")
-        self.text.insert("end", f"[{time_str}] ", "time")
-        self.text.insert("end", msg + "\n", tag)
-        self.text.see("end")   # auto-scroll vers le bas
-        self.text.configure(state="disabled")
+        evt_colors = EVT_COLORS_DARK if self._c["bg"] < "#808080" else EVT_COLORS_LIGHT
 
-    def _log_system(self, msg: str):
-        self._append_line(
-            datetime.now().strftime("%H:%M:%S"),
-            msg, "connection"
-        )
+        # Timestamp
+        if ts:
+            fmt = QTextCharFormat()
+            fmt.setForeground(QColor(self._c["dimmer"]))
+            c.setCharFormat(fmt)
+            c.insertText(f"{ts}   ")
+
+        # Badge
+        color = evt_colors.get(evt, self._c["muted"])
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(color))
+        f = QFont(); f.setWeight(QFont.Weight.Bold); fmt.setFont(f)
+        c.setCharFormat(fmt)
+        c.insertText(f"{EVT_LABELS.get(evt, '·'):<10}")
+
+        # Message
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(self._c["text2"]))
+        c.setCharFormat(fmt)
+        c.insertText(f" {msg}\n")
+
+        self.log.setTextCursor(c)
+        self.log.ensureCursorVisible()
 
     def _clear(self):
-        self.text.configure(state="normal")
-        self.text.delete("1.0", "end")
-        self.text.configure(state="disabled")
-        self._log_system("Journal effacé.")
+        self.log.clear()
+        self._count = 0
+        self.cnt_lbl.setText("0 événement")
+        self._write("system", "Journal effacé.", "")

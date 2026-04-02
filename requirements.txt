@@ -13,7 +13,7 @@ ifaddr>=0.2.0              # Détection de l'IP locale de façon fiable
 # ─── Interface graphique ────────────────────────────────────────
 # tkinter est inclus dans Python standard (pas besoin de l'installer)
 # Si tu utilises PyQt6 à la place, décommente la ligne ci-dessous :
-# PyQt6>=6.6.0
+PyQt6>=6.6.0
 
 # ─── Sécurité / Auth ───────────────────────────────────────────
 bcrypt>=4.1.0              # Hashage du PIN si mode auth activé

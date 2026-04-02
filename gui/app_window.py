@@ -1,185 +1,323 @@
 import queue
 import threading
-import tkinter as tk
-from tkinter import ttk, messagebox
+import sys
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
+    QStackedWidget, QPushButton, QLabel, QFrame, QMessageBox
+)
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
+from PyQt6.QtGui import QFont, QCursor
 
 from server.app import create_app, load_config
 from core.network import get_server_url
+from gui.theme import get_colors
 
 
-class AppWindow:
-    """
-    Fenêtre principale de l'application.
-    Lance le serveur Flask dans un thread séparé et
-    affiche les 4 onglets : Fichiers, Transferts, QR Code, Paramètres.
-    """
+def _make_app_style(c: dict) -> str:
+    return f"""
+* {{
+    font-family: {c['sans']};
+}}
+QMainWindow, QWidget {{
+    background-color: {c['bg']};
+    color: {c['text']};
+}}
 
+/* ── Sidebar ── */
+QFrame#sidebar {{
+    background-color: {c['surface']};
+    border-right: 1px solid {c['border']};
+    min-width: 216px;
+    max-width: 216px;
+}}
+QPushButton#nav-btn {{
+    background: transparent;
+    color: {c['muted']};
+    border: none;
+    border-left: 2px solid transparent;
+    text-align: left;
+    padding: 10px 18px 10px 22px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 0;
+}}
+QPushButton#nav-btn:hover {{
+    background-color: {c['surface2']};
+    color: {c['text2']};
+}}
+QPushButton#nav-btn[active=true] {{
+    background-color: {c['surface2']};
+    color: {c['accent']};
+    border-left: 2px solid {c['accent']};
+    padding-left: 20px;
+    font-weight: 700;
+}}
+
+/* ── Header ── */
+QFrame#header {{
+    background-color: {c['surface']};
+    border-bottom: 1px solid {c['border']};
+    min-height: 54px;
+    max-height: 54px;
+}}
+QLabel#logo {{
+    color: {c['text']};
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+}}
+QLabel#logo-dot {{
+    color: {c['accent']};
+    font-size: 20px;
+    font-weight: 900;
+}}
+QLabel#status-pill {{
+    background-color: {c['accent_dim']};
+    color: {c['accent']};
+    border: 1px solid {c['accent_mid']};
+    border-radius: 10px;
+    padding: 3px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    font-family: {c['mono']};
+}}
+QPushButton#theme-btn {{
+    background: {c['surface2']};
+    color: {c['muted']};
+    border: 1px solid {c['border']};
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-size: 14px;
+    min-width: 34px;
+    max-width: 34px;
+    min-height: 28px;
+    max-height: 28px;
+}}
+QPushButton#theme-btn:hover {{
+    background: {c['surface3']};
+    color: {c['text']};
+    border-color: {c['border2']};
+}}
+
+/* ── Statusbar ── */
+QFrame#statusbar {{
+    background-color: {c['surface']};
+    border-top: 1px solid {c['border']};
+    min-height: 26px;
+    max-height: 26px;
+}}
+QLabel#sb-text {{
+    color: {c['muted']};
+    font-size: 11px;
+    font-family: {c['mono']};
+}}
+QLabel#sb-dot {{
+    color: {c['success']};
+    font-size: 9px;
+}}
+
+/* ── Sidebar section label ── */
+QLabel#nav-section {{
+    color: {c['dimmer']};
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.8px;
+    padding: 0 22px;
+}}
+QLabel#nav-version {{
+    color: {c['dimmer']};
+    font-size: 10px;
+    padding: 0 22px;
+}}
+"""
+
+
+class EventBridge(QObject):
+    new_event = pyqtSignal(dict)
+
+
+class AppWindow(QMainWindow):
     def __init__(self):
+        super().__init__()
         self.config = load_config()
+        self._dark = True
         self.event_queue = queue.Queue()
-        self.server_thread = None
-        self.flask_app = None
-
-        # ── Fenêtre racine ────────────────────────────────────
-        self.root = tk.Tk()
-        self.root.title("MiniServer")
-        self.root.geometry("720x520")
-        self.root.minsize(600, 420)
-        self.root.configure(bg="#f5f5f4")
-
+        self.bridge = EventBridge()
+        self.bridge.new_event.connect(self._dispatch)
         self._build_ui()
         self._start_server()
-        self._poll_events()   # démarre la boucle de lecture de la queue
+        self._timer = QTimer()
+        self._timer.timeout.connect(self._poll_events)
+        self._timer.start(150)
 
-    # ─────────────────────────────────────────────────────────
-    # Construction de l'UI
-    # ─────────────────────────────────────────────────────────
+    # ── UI ────────────────────────────────────────────────────
 
     def _build_ui(self):
-        """Construit le header, les onglets et la status bar."""
+        c = get_colors(self._dark)
+        self.setWindowTitle("Droply")
+        self.resize(1000, 640)
+        self.setMinimumSize(780, 520)
+        self.setStyleSheet(_make_app_style(c))
 
-        # ── Header ───────────────────────────────────────────
-        header = tk.Frame(self.root, bg="#ffffff", height=52)
-        header.pack(fill="x", side="top")
-        header.pack_propagate(False)
+        central = QWidget()
+        self.setCentralWidget(central)
+        root = QVBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        tk.Label(
-            header, text="  MiniServer",
-            font=("Helvetica", 14, "bold"),
-            bg="#ffffff", fg="#1c1c1a"
-        ).pack(side="left", padx=8)
+        # ── Header
+        header = QFrame(); header.setObjectName("header")
+        hl = QHBoxLayout(header); hl.setContentsMargins(24, 0, 20, 0); hl.setSpacing(8)
 
-        self.status_dot = tk.Label(header, text="●", font=("Helvetica", 12),
-                                   bg="#ffffff", fg="#d1d1cf")
-        self.status_dot.pack(side="right", padx=(0, 12))
+        logo_row = QHBoxLayout(); logo_row.setSpacing(2)
+        dot = QLabel("·"); dot.setObjectName("logo-dot")
+        logo = QLabel("Droply"); logo.setObjectName("logo")
+        logo_row.addWidget(dot)
+        logo_row.addWidget(logo)
+        hl.addLayout(logo_row)
+        hl.addStretch()
 
-        self.status_label = tk.Label(header, text="Démarrage…",
-                                     font=("Helvetica", 11),
-                                     bg="#ffffff", fg="#737370")
-        self.status_label.pack(side="right", padx=4)
+        self.status_pill = QLabel("● Démarrage…")
+        self.status_pill.setObjectName("status-pill")
+        hl.addWidget(self.status_pill)
+        hl.addSpacing(8)
 
-        # ── Séparateur ───────────────────────────────────────
-        tk.Frame(self.root, bg="#e2e2e0", height=1).pack(fill="x")
+        self.theme_btn = QPushButton("☀")
+        self.theme_btn.setObjectName("theme-btn")
+        self.theme_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.theme_btn.setToolTip("Basculer le thème")
+        self.theme_btn.clicked.connect(self._toggle_theme)
+        hl.addWidget(self.theme_btn)
+        root.addWidget(header)
 
-        # ── Notebook (onglets) ────────────────────────────────
-        style = ttk.Style()
-        style.theme_use("default")
-        style.configure("TNotebook", background="#f5f5f4", borderwidth=0)
-        style.configure("TNotebook.Tab", padding=[16, 8], font=("Helvetica", 11))
+        # ── Body
+        body = QWidget()
+        bl = QHBoxLayout(body); bl.setContentsMargins(0, 0, 0, 0); bl.setSpacing(0)
 
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill="both", expand=True, padx=0, pady=0)
+        # Sidebar
+        sidebar = QFrame(); sidebar.setObjectName("sidebar")
+        self._sidebar = sidebar
+        sl = QVBoxLayout(sidebar); sl.setContentsMargins(0, 22, 0, 20); sl.setSpacing(2)
 
-        # Import ici pour éviter les imports circulaires
+        nav_section = QLabel("NAVIGATION"); nav_section.setObjectName("nav-section")
+        sl.addWidget(nav_section)
+        sl.addSpacing(10)
+
+        self._nav_btns = []
+        pages = [
+            ("   Fichiers",    "files"),
+            ("   Transferts",  "transfers"),
+            ("   QR Code",     "qrcode"),
+            ("   Paramètres",  "settings"),
+        ]
+        for label, name in pages:
+            b = QPushButton(label); b.setObjectName("nav-btn")
+            b.setProperty("page", name)
+            b.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            b.clicked.connect(lambda _, n=name: self._go(n))
+            sl.addWidget(b); self._nav_btns.append(b)
+
+        sl.addStretch()
+        ver = QLabel("v1.0.0"); ver.setObjectName("nav-version")
+        sl.addWidget(ver)
+        bl.addWidget(sidebar)
+
+        # Pages
+        self.stack = QStackedWidget()
         from gui.tab_files     import FilesTab
         from gui.tab_transfers import TransfersTab
         from gui.tab_qrcode    import QRCodeTab
         from gui.tab_settings  import SettingsTab
+        self.tab_files     = FilesTab(self.config, c)
+        self.tab_transfers = TransfersTab(c)
+        self.tab_qrcode    = QRCodeTab(self.config, c)
+        self.tab_settings  = SettingsTab(self.config, self, c)
+        for tab in [self.tab_files, self.tab_transfers, self.tab_qrcode, self.tab_settings]:
+            self.stack.addWidget(tab)
+        bl.addWidget(self.stack)
+        root.addWidget(body)
 
-        self.tab_files     = FilesTab(self.notebook, self.config)
-        self.tab_transfers = TransfersTab(self.notebook)
-        self.tab_qrcode    = QRCodeTab(self.notebook, self.config)
-        self.tab_settings  = SettingsTab(self.notebook, self.config, self)
+        # ── Statusbar
+        sb = QFrame(); sb.setObjectName("statusbar")
+        sbl = QHBoxLayout(sb); sbl.setContentsMargins(20, 0, 20, 0); sbl.setSpacing(6)
+        self.sb_dot = QLabel("●"); self.sb_dot.setObjectName("sb-dot")
+        sbl.addWidget(self.sb_dot)
+        self.sb_text = QLabel(""); self.sb_text.setObjectName("sb-text")
+        sbl.addWidget(self.sb_text)
+        sbl.addStretch()
+        root.addWidget(sb)
 
-        self.notebook.add(self.tab_files.frame,     text="  Fichiers  ")
-        self.notebook.add(self.tab_transfers.frame,  text="  Transferts  ")
-        self.notebook.add(self.tab_qrcode.frame,    text="  QR Code  ")
-        self.notebook.add(self.tab_settings.frame,  text="  Paramètres  ")
+        self._go("files")
 
-        # ── Status bar (bas) ──────────────────────────────────
-        bar = tk.Frame(self.root, bg="#ffffff", height=28)
-        bar.pack(fill="x", side="bottom")
-        bar.pack_propagate(False)
-        tk.Frame(bar, bg="#e2e2e0", height=1).pack(fill="x")
+    def _go(self, name: str):
+        idx = ["files", "transfers", "qrcode", "settings"].index(name)
+        self.stack.setCurrentIndex(idx)
+        for b in self._nav_btns:
+            active = b.property("page") == name
+            b.setProperty("active", active)
+            b.style().unpolish(b); b.style().polish(b)
 
-        self.bar_label = tk.Label(bar, text="", font=("Helvetica", 10),
-                                  bg="#ffffff", fg="#737370")
-        self.bar_label.pack(side="left", padx=12)
+    def _toggle_theme(self):
+        self._dark = not self._dark
+        self._apply_theme()
 
-    # ─────────────────────────────────────────────────────────
-    # Serveur Flask dans un thread daemon
-    # ─────────────────────────────────────────────────────────
+    def _apply_theme(self):
+        c = get_colors(self._dark)
+        self.setStyleSheet(_make_app_style(c))
+        self.theme_btn.setText("☀" if self._dark else "🌙")
+        for tab in [self.tab_files, self.tab_transfers, self.tab_qrcode, self.tab_settings]:
+            tab.apply_theme(c)
+        # Refresh nav button active states
+        for b in self._nav_btns:
+            b.style().unpolish(b); b.style().polish(b)
+
+    # ── Server ────────────────────────────────────────────────
 
     def _start_server(self):
-        """Lance Flask dans un thread daemon (s'arrête avec la GUI)."""
         self.flask_app = create_app(self.config, self.event_queue)
         port = self.config["server"]["port"]
-
-        def run():
-            self.flask_app.run(
-                host=self.config["server"]["host"],
-                port=port,
-                debug=False,
-                use_reloader=False,   # IMPORTANT : pas de double thread
-            )
-
-        self.server_thread = threading.Thread(target=run, daemon=True)
-        self.server_thread.start()
-
+        threading.Thread(
+            target=lambda: self.flask_app.run(
+                host=self.config["server"]["host"], port=port,
+                debug=False, use_reloader=False),
+            daemon=True).start()
         url = get_server_url(port)
-        self._set_status(f"En ligne — {url}", online=True)
+        self.status_pill.setText(f"● En ligne  {url}")
+        self.sb_text.setText(url)
         self.tab_qrcode.set_url(url)
-        self.bar_label.config(text=url)
-
-    # ─────────────────────────────────────────────────────────
-    # Boucle de lecture de la queue d'événements
-    # ─────────────────────────────────────────────────────────
 
     def _poll_events(self):
-        """
-        Lit la queue toutes les 200 ms et dispatch les événements
-        vers les onglets concernés.
-        Tkinter n'est pas thread-safe : on ne peut pas toucher
-        les widgets depuis le thread Flask — cette méthode
-        fait le pont depuis le thread principal.
-        """
         try:
             while True:
-                event = self.event_queue.get_nowait()
-                self._dispatch(event)
+                self.bridge.new_event.emit(self.event_queue.get_nowait())
         except queue.Empty:
             pass
-        # Replanifie dans 200 ms
-        self.root.after(200, self._poll_events)
 
     def _dispatch(self, event: dict):
-        """Route un événement vers le bon onglet."""
-        t = event.get("type")
-        d = event.get("data", {})
-
-        if t == "upload":
-            self.tab_transfers.add_event("upload", d)
+        t, d = event.get("type"), event.get("data", {})
+        if t in ("upload", "delete"):
+            self.tab_transfers.add_event(t, d)
             self.tab_files.refresh(self.config["shared_folder"])
+        elif t in ("download", "connection"):
+            self.tab_transfers.add_event(t, d)
 
-        elif t == "download":
-            self.tab_transfers.add_event("download", d)
+    def reload_config(self, cfg: dict):
+        self.config = cfg
+        url = get_server_url(cfg["server"]["port"])
+        self.tab_qrcode.set_url(url)
+        self.sb_text.setText(url)
 
-        elif t == "delete":
-            self.tab_transfers.add_event("delete", d)
-            self.tab_files.refresh(self.config["shared_folder"])
+    def closeEvent(self, e):
+        r = QMessageBox.question(
+            self, "Quitter", "Arrêter le serveur et quitter ?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        e.accept() if r == QMessageBox.StandardButton.Yes else e.ignore()
 
-        elif t == "connection":
-            self.tab_transfers.add_event("connection", d)
 
-    # ─────────────────────────────────────────────────────────
-    # Helpers
-    # ─────────────────────────────────────────────────────────
-
-    def _set_status(self, text: str, online: bool = True):
-        color = "#16a34a" if online else "#dc2626"
-        self.status_dot.config(fg=color)
-        self.status_label.config(text=text)
-
-    def reload_config(self, new_config: dict):
-        """Appelé depuis SettingsTab quand l'utilisateur sauvegarde."""
-        self.config = new_config
-        self.tab_qrcode.set_url(get_server_url(new_config["server"]["port"]))
-
-    def run(self):
-        """Lance la boucle principale Tkinter."""
-        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-        self.root.mainloop()
-
-    def _on_close(self):
-        if messagebox.askokcancel("Quitter", "Arrêter le serveur et quitter ?"):
-            self.root.destroy()
+def run_app():
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+    w = AppWindow(); w.show()
+    sys.exit(app.exec())
