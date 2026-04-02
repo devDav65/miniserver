@@ -10,7 +10,6 @@
   --accent:    #2563eb;
   --accent-h:  #1d4ed8;
   --danger:    #dc2626;
-  --danger-h:  #b91c1c;
   --success:   #16a34a;
   --radius:    10px;
   --shadow:    0 1px 3px rgba(0,0,0,.08);
@@ -36,7 +35,7 @@ header {
 }
 
 .header-inner {
-  max-width: 860px;
+  max-width: 900px;
   margin: 0 auto;
   padding: 0 20px;
   height: 54px;
@@ -52,6 +51,7 @@ header {
   font-weight: 600;
   font-size: 16px;
   color: var(--text);
+  text-decoration: none;
 }
 
 nav a {
@@ -64,14 +64,14 @@ nav a:hover { color: var(--text); }
 
 /* ── Main ───────────────────────────────────────────────────── */
 main {
-  max-width: 860px;
+  max-width: 900px;
   width: 100%;
-  margin: 32px auto;
+  margin: 28px auto;
   padding: 0 20px;
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
 /* ── Drop zone ──────────────────────────────────────────────── */
@@ -79,7 +79,7 @@ main {
   background: var(--surface);
   border: 2px dashed var(--border);
   border-radius: var(--radius);
-  padding: 40px 24px;
+  padding: 36px 24px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -106,6 +106,7 @@ main {
   padding: 8px 18px;
   border-radius: 8px;
   font-size: 13px;
+  font-family: inherit;
   cursor: pointer;
   transition: background .15s;
 }
@@ -128,7 +129,6 @@ main {
   background: var(--border);
   border-radius: 99px;
   overflow: hidden;
-  position: relative;
 }
 
 #progress-bar::after {
@@ -143,17 +143,31 @@ main {
 
 #progress-label { font-size: 13px; color: var(--muted); min-width: 36px; text-align: right; }
 
-/* ── Flash messages ─────────────────────────────────────────── */
+/* ── Flash messages (coin bas-droit, hors flux) ─────────────── */
+#flash-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1000;
+  pointer-events: none;
+}
+
 .flash {
-  padding: 12px 16px;
+  pointer-events: all;
+  padding: 11px 16px;
   border-radius: var(--radius);
   font-size: 14px;
+  max-width: 300px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.1);
   animation: fadeIn .2s ease;
 }
 .flash.success { background: #f0fdf4; color: var(--success); border: 1px solid #bbf7d0; }
 .flash.error   { background: #fef2f2; color: var(--danger);  border: 1px solid #fecaca; }
 
-@keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; } }
 
 /* ── File section ───────────────────────────────────────────── */
 .file-section {
@@ -165,7 +179,7 @@ main {
 }
 
 .file-section-header {
-  padding: 16px 20px;
+  padding: 14px 20px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -187,7 +201,7 @@ main {
   padding: 1px 8px;
 }
 
-/* ── Table ──────────────────────────────────────────────────── */
+/* ── Table (desktop) ────────────────────────────────────────── */
 .file-table {
   width: 100%;
   border-collapse: collapse;
@@ -224,7 +238,7 @@ main {
 
 .file-size, .file-date { color: var(--muted); white-space: nowrap; }
 
-.file-actions { display: flex; gap: 8px; }
+.file-actions { display: flex; gap: 8px; align-items: center; }
 
 .btn-dl {
   background: var(--accent);
@@ -245,11 +259,24 @@ main {
   padding: 5px 12px;
   border-radius: 6px;
   font-size: 13px;
+  font-family: inherit;
   cursor: pointer;
   transition: background .15s, border-color .15s;
   white-space: nowrap;
 }
 .btn-del:hover { background: #fef2f2; border-color: #fecaca; }
+.btn-del:disabled { opacity: .5; cursor: not-allowed; }
+
+.btn-del-locked {
+  color: #a8a8a4;
+  font-size: 13px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: not-allowed;
+  white-space: nowrap;
+  user-select: none;
+}
 
 /* ── Empty state ─────────────────────────────────────────────── */
 .empty-state {
@@ -263,17 +290,76 @@ main {
 /* ── Footer ─────────────────────────────────────────────────── */
 footer {
   text-align: center;
-  padding: 20px;
+  padding: 18px;
   font-size: 12px;
   color: var(--muted);
   border-top: 1px solid var(--border);
   background: var(--surface);
 }
 
-/* ── Responsive ─────────────────────────────────────────────── */
-@media (max-width: 600px) {
+/* ── Cards (mobile seulement) ────────────────────────────────── */
+.file-cards { display: none; }
+
+.file-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 5px 12px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border);
+  transition: background .1s;
+}
+.file-card:last-child { border-bottom: none; }
+.file-card:hover { background: #fafaf9; }
+
+.file-card-name {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 500;
+  font-size: 14px;
+  word-break: break-all;
+}
+.file-card-name svg { flex-shrink: 0; color: var(--muted); }
+
+.file-card-meta {
+  grid-column: 1;
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.file-card-actions {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  justify-content: center;
+  align-items: flex-end;
+}
+
+/* ── Breakpoints ─────────────────────────────────────────────── */
+
+/* Tablette : masquer colonne date */
+@media (max-width: 800px) {
   .file-date { display: none; }
   .file-table thead th:nth-child(3) { display: none; }
-  .header-inner { padding: 0 14px; }
-  main { margin: 16px auto; padding: 0 14px; }
+  main { padding: 0 16px; }
+  .header-inner { padding: 0 16px; }
+}
+
+/* Mobile : tableau → cartes */
+@media (max-width: 600px) {
+  main { margin: 14px auto; padding: 0 12px; gap: 14px; }
+  .header-inner { padding: 0 12px; }
+  #drop-zone { padding: 26px 14px; }
+  #flash-container { right: 12px; left: 12px; bottom: 14px; }
+  .flash { max-width: 100%; }
+  .file-table-wrapper { display: none; }
+  .file-cards { display: block; }
+  .file-section-header { padding: 12px 16px; }
 }

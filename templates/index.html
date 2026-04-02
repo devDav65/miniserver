@@ -24,7 +24,7 @@
   <span id="progress-label">0%</span>
 </div>
 
-<!-- ── Messages flash ────────────────────────────────────────── -->
+<!-- ── Flash messages ────────────────────────────────────────── -->
 <div id="flash-container"></div>
 
 <!-- ── Liste des fichiers ─────────────────────────────────────── -->
@@ -34,40 +34,73 @@
   </div>
 
   {% if files %}
-  <table class="file-table">
-    <thead>
-      <tr>
-        <th>Nom</th>
-        <th>Taille</th>
-        <th>Modifié</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody id="file-list">
-      {% for f in files %}
-      <tr id="row-{{ loop.index }}">
-        <td class="file-name">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/>
-          </svg>
-          {{ f.name }}
-        </td>
-        <td class="file-size">{{ f.size_str }}</td>
-        <td class="file-date">{{ f.modified }}</td>
-        <td class="file-actions">
-          <a class="btn-dl" href="/download/{{ f.name }}">
-            Télécharger
-          </a>
-          <button class="btn-del" onclick="deleteFile('{{ f.name }}', this)">
-            Supprimer
-          </button>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+
+  <!-- Tableau desktop/tablette -->
+  <div class="file-table-wrapper">
+    <table class="file-table">
+      <thead>
+        <tr>
+          <th>Nom</th>
+          <th>Taille</th>
+          <th>Modifié</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="file-list">
+        {% for f in files %}
+        <tr data-name="{{ f.name }}">
+          <td class="file-name">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            {{ f.name }}
+          </td>
+          <td class="file-size">{{ f.size_str }}</td>
+          <td class="file-date">{{ f.modified }}</td>
+          <td class="file-actions">
+            <a class="btn-dl" href="/download/{{ f.name }}">Télécharger</a>
+            {% if f.can_delete %}
+            <button class="btn-del" onclick="deleteFile('{{ f.name }}', this)">Supprimer</button>
+            {% else %}
+            <span class="btn-del-locked" title="Uploadé par {{ f.owner_ip }}">Verrouillé</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Cartes mobile -->
+  <div class="file-cards" id="file-cards">
+    {% for f in files %}
+    <div class="file-card" data-name="{{ f.name }}">
+      <div class="file-card-name">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+        </svg>
+        {{ f.name }}
+      </div>
+      <div class="file-card-meta">
+        <span>{{ f.size_str }}</span>
+        <span>·</span>
+        <span>{{ f.modified }}</span>
+      </div>
+      <div class="file-card-actions">
+        <a class="btn-dl" href="/download/{{ f.name }}">Télécharger</a>
+        {% if f.can_delete %}
+        <button class="btn-del" onclick="deleteFile('{{ f.name }}', this)">Supprimer</button>
+        {% else %}
+        <span class="btn-del-locked" title="Uploadé par {{ f.owner_ip }}">Verrouillé</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
 
   {% else %}
   <div class="empty-state">

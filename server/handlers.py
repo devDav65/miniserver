@@ -3,6 +3,14 @@ import queue
 import datetime
 from flask import current_app, request, render_template, send_from_directory, jsonify, session
 from werkzeug.utils import secure_filename
+from core.file_manager import list_files as fm_list_files
+
+
+# ─────────────────────────────────────────────────────────────────
+# Registre des propriétaires : { "nom_fichier": "ip_uploader" }
+# Stocké en mémoire — réinitialisé au redémarrage du serveur.
+# ─────────────────────────────────────────────────────────────────
+_file_owners: dict[str, str] = {}
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -10,22 +18,16 @@ from werkzeug.utils import secure_filename
 # ─────────────────────────────────────────────────────────────────
 
 def _shared_folder() -> str:
-    """Retourne le chemin absolu du dossier partagé."""
     return current_app.config["SHARED_FOLDER"]
 
 
 def _push_event(event_type: str, data: dict):
-    """
-    Envoie un événement à la GUI via la queue.
-    Si pas de GUI (event_queue = None), on ignore silencieusement.
-    """
     q: queue.Queue = current_app.config.get("EVENT_QUEUE")
     if q:
         q.put({"type": event_type, "data": data, "time": datetime.datetime.now().isoformat()})
 
 
 def _is_allowed(filename: str) -> bool:
-    """Vérifie que l'extension est autorisée (liste blanche)."""
     allowed = current_app.config.get("ALLOWED_EXTENSIONS", [])
     if not allowed:
         return True
@@ -34,45 +36,44 @@ def _is_allowed(filename: str) -> bool:
 
 
 def _is_authenticated() -> bool:
-    """
-    Vérifie si la requête est authentifiée selon le mode configuré.
-      - open  : toujours True
-      - pin   : vérifie la session Flask
-      - token : vérifie le header Authorization: Bearer <token>
-    """
     mode = current_app.config.get("AUTH_MODE", "open")
-
     if mode == "open":
         return True
-
     if mode == "pin":
         return session.get("authenticated") is True
-
     if mode == "token":
         expected = current_app.config.get("AUTH_PIN", "")
         header = request.headers.get("Authorization", "")
         return header == f"Bearer {expected}"
-
     return False
 
 
+def _is_server_host() -> bool:
+    """
+    Retourne True si la requête vient du PC hôte lui-même
+    (127.0.0.1 ou ::1).
+    """
+    return request.remote_addr in ("127.0.0.1", "::1")
+
+
+def _can_delete(filename: str) -> bool:
+    """
+    Règle de suppression :
+      - L'hôte (127.0.0.1) peut tout supprimer.
+      - Un client peut supprimer uniquement les fichiers qu'il a uploadés.
+      - Les fichiers sans propriétaire connu (ex: déposés manuellement
+        dans shared/) ne peuvent être supprimés que par l'hôte.
+    """
+    if _is_server_host():
+        return True
+    owner = _file_owners.get(filename)
+    if owner is None:
+        return False
+    return owner == request.remote_addr
+
+
 def _list_files() -> list[dict]:
-    """
-    Retourne la liste des fichiers du dossier partagé.
-    Chaque fichier est un dict : name, size, modified.
-    """
-    folder = _shared_folder()
-    files = []
-    for name in sorted(os.listdir(folder)):
-        path = os.path.join(folder, name)
-        if os.path.isfile(path):
-            stat = os.stat(path)
-            files.append({
-                "name": name,
-                "size": stat.st_size,
-                "modified": datetime.datetime.fromtimestamp(stat.st_mtime).strftime("%d/%m/%Y %H:%M"),
-            })
-    return files
+    return fm_list_files(_shared_folder())
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -80,25 +81,24 @@ def _list_files() -> list[dict]:
 # ─────────────────────────────────────────────────────────────────
 
 def handle_index():
-    """
-    GET /
-    Affiche la page principale avec la liste des fichiers.
-    Redirige vers la page d'auth si nécessaire.
-    """
     if not _is_authenticated():
         return render_template("auth.html"), 401
 
     files = _list_files()
-    _push_event("connection", {"ip": request.remote_addr})
-    return render_template("index.html", files=files)
+    client_ip = request.remote_addr
+    is_host = _is_server_host()
+
+    # Pour chaque fichier, on indique si le client courant peut le supprimer
+    for f in files:
+        owner = _file_owners.get(f["name"])
+        f["can_delete"] = is_host or (owner == client_ip)
+        f["owner_ip"]   = owner or "—"
+
+    _push_event("connection", {"ip": client_ip})
+    return render_template("index.html", files=files, is_host=is_host)
 
 
 def handle_upload():
-    """
-    POST /upload
-    Reçoit un fichier, le valide, le sauvegarde dans shared/.
-    Retourne du JSON pour que upload.js puisse mettre à jour l'UI.
-    """
     if not _is_authenticated():
         return jsonify({"error": "Non autorisé"}), 401
 
@@ -107,6 +107,7 @@ def handle_upload():
 
     uploaded = []
     errors = []
+    uploader_ip = request.remote_addr
 
     for file in request.files.getlist("file"):
         if file.filename == "":
@@ -119,8 +120,6 @@ def handle_upload():
             continue
 
         dest = os.path.join(_shared_folder(), filename)
-
-        # Si le fichier existe déjà, on ajoute un suffixe
         base, ext = os.path.splitext(filename)
         counter = 1
         while os.path.exists(dest):
@@ -130,12 +129,16 @@ def handle_upload():
 
         file.save(dest)
         size = os.path.getsize(dest)
-        uploaded.append({"name": filename, "size": size})
+
+        # Enregistre le propriétaire
+        _file_owners[filename] = uploader_ip
+
+        uploaded.append({"name": filename, "size": size, "can_delete": True})
 
         _push_event("upload", {
             "filename": filename,
             "size": size,
-            "ip": request.remote_addr,
+            "ip": uploader_ip,
         })
 
     if errors:
@@ -145,10 +148,6 @@ def handle_upload():
 
 
 def handle_download(filename: str):
-    """
-    GET /download/<filename>
-    Envoie le fichier au navigateur pour téléchargement.
-    """
     if not _is_authenticated():
         return jsonify({"error": "Non autorisé"}), 401
 
@@ -158,19 +157,11 @@ def handle_download(filename: str):
     if not os.path.isfile(os.path.join(folder, safe_name)):
         return jsonify({"error": "Fichier introuvable"}), 404
 
-    _push_event("download", {
-        "filename": safe_name,
-        "ip": request.remote_addr,
-    })
-
+    _push_event("download", {"filename": safe_name, "ip": request.remote_addr})
     return send_from_directory(folder, safe_name, as_attachment=True)
 
 
 def handle_delete(filename: str):
-    """
-    DELETE /delete/<filename>
-    Supprime le fichier du dossier partagé.
-    """
     if not _is_authenticated():
         return jsonify({"error": "Non autorisé"}), 401
 
@@ -180,24 +171,19 @@ def handle_delete(filename: str):
     if not os.path.isfile(path):
         return jsonify({"error": "Fichier introuvable"}), 404
 
+    # Vérification du propriétaire
+    if not _can_delete(safe_name):
+        return jsonify({"error": "Non autorisé — seul celui qui a uploadé ce fichier peut le supprimer."}), 403
+
     os.remove(path)
+    _file_owners.pop(safe_name, None)
 
-    _push_event("delete", {
-        "filename": safe_name,
-        "ip": request.remote_addr,
-    })
-
+    _push_event("delete", {"filename": safe_name, "ip": request.remote_addr})
     return jsonify({"deleted": safe_name}), 200
 
 
 def handle_auth():
-    """
-    POST /auth
-    Vérifie le PIN envoyé dans le body JSON.
-    En cas de succès, marque la session comme authentifiée.
-    """
     mode = current_app.config.get("AUTH_MODE", "open")
-
     if mode != "pin":
         return jsonify({"error": "Auth non requise"}), 400
 
