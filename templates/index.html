@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}Fichiers — MiniServer{% endblock %}
+
+{% block content %}
+
+<!-- ── Zone de drop ───────────────────────────────────────────── -->
+<div id="drop-zone">
+  <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+    <polyline points="17 8 12 3 7 8"/>
+    <line x1="12" y1="3" x2="12" y2="15"/>
+  </svg>
+  <p>Glisse des fichiers ici</p>
+  <span>ou</span>
+  <label class="btn-upload" for="file-input">Choisir des fichiers</label>
+  <input type="file" id="file-input" multiple hidden />
+</div>
+
+<!-- ── Barre de progression ──────────────────────────────────── -->
+<div id="progress-wrapper" hidden>
+  <div id="progress-bar"></div>
+  <span id="progress-label">0%</span>
+</div>
+
+<!-- ── Flash messages ────────────────────────────────────────── -->
+<div id="flash-container"></div>
+
+<!-- ── Liste des fichiers ─────────────────────────────────────── -->
+<section class="file-section">
+  <div class="file-section-header">
+    <h2>Fichiers partagés <span class="badge">{{ files | length }}</span></h2>
+  </div>
+
+  {% if files %}
+
+  <!-- Tableau desktop/tablette -->
+  <div class="file-table-wrapper">
+    <table class="file-table">
+      <thead>
+        <tr>
+          <th>Nom</th>
+          <th>Taille</th>
+          <th>Modifié</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="file-list">
+        {% for f in files %}
+        <tr data-name="{{ f.name }}">
+          <td class="file-name">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            {{ f.name }}
+          </td>
+          <td class="file-size">{{ f.size_str }}</td>
+          <td class="file-date">{{ f.modified }}</td>
+          <td class="file-actions">
+            <a class="btn-dl" href="/download/{{ f.name }}">Télécharger</a>
+            {% if f.can_delete %}
+            <button class="btn-del" onclick="deleteFile('{{ f.name }}', this)">Supprimer</button>
+            {% else %}
+            <span class="btn-del-locked" title="Uploadé par {{ f.owner_ip }}">Verrouillé</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Cartes mobile -->
+  <div class="file-cards" id="file-cards">
+    {% for f in files %}
+    <div class="file-card" data-name="{{ f.name }}">
+      <div class="file-card-name">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+        </svg>
+        {{ f.name }}
+      </div>
+      <div class="file-card-meta">
+        <span>{{ f.size_str }}</span>
+        <span>·</span>
+        <span>{{ f.modified }}</span>
+      </div>
+      <div class="file-card-actions">
+        <a class="btn-dl" href="/download/{{ f.name }}">Télécharger</a>
+        {% if f.can_delete %}
+        <button class="btn-del" onclick="deleteFile('{{ f.name }}', this)">Supprimer</button>
+        {% else %}
+        <span class="btn-del-locked" title="Uploadé par {{ f.owner_ip }}">Verrouillé</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% else %}
+  <div class="empty-state">
+    <p>Aucun fichier partagé pour l'instant.</p>
+    <p>Glisse un fichier dans la zone ci-dessus pour commencer.</p>
+  </div>
+  {% endif %}
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/upload.js') }}"></script>
+{% endblock %}
