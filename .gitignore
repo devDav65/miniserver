@@ -34,6 +34,6 @@ Thumbs.db
 desktop.ini
 
 # Pillow / images générées
-*.png
-*.jpg
-*.jpeg
+# Images générées dynamiquement
+qrcode*.png
+thumb_*.jpg
