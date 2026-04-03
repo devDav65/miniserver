@@ -6,9 +6,6 @@ on:
       - 'v*'
 
 jobs:
-  # ══════════════════════════════════════════
-  #  BUILD — Windows / macOS / Linux
-  # ══════════════════════════════════════════
   build:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -38,7 +35,6 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      # ── Linux : dépendances système pour PyQt6 + Pillow ──
       - name: Install Linux system dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -57,38 +53,33 @@ jobs:
             zlib1g-dev \
             libjpeg-dev
 
-      # ── macOS : dépendances système pour PyQt6 + Pillow ──
       - name: Install macOS system dependencies
         if: matrix.os == 'macos-latest'
-        run: |
-          brew install libjpeg zlib
+        run: brew install libjpeg zlib
 
-      # ── Toutes plateformes ──
       - name: Install Python dependencies
         run: pip install -r requirements.txt pyinstaller
 
       - name: Build with PyInstaller
         run: pyinstaller build.spec
 
-      # ── Renommage Unix (macOS + Linux) ──
       - name: Rename artifact (Unix)
         if: matrix.os != 'windows-latest'
         run: mv dist/Droply dist/${{ matrix.asset_name }}
 
-      # ── Upload l'artifact pour le job release ──
+      # Upload — chaque artifact dans un dossier à son nom
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset_name }}
           path: dist/${{ matrix.asset_name }}
 
-  # ══════════════════════════════════════════
-  #  RELEASE — Crée la GitHub Release
-  # ══════════════════════════════════════════
   release:
     name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write       # ← indispensable pour créer une release
 
     steps:
       - name: Download all artifacts
@@ -96,8 +87,20 @@ jobs:
         with:
           path: dist/
 
-      - name: Display downloaded structure
-        run: find dist/
+      # Montre la structure réelle pour déboguer si besoin
+      - name: Show artifact structure
+        run: find dist/ -type f
+
+      # Déplace tout à plat dans dist/
+      - name: Flatten artifacts
+        run: |
+          mv dist/Droply-windows.exe/Droply-windows.exe dist/Droply-windows.exe.bin || true
+          mv dist/Droply-macos/Droply-macos             dist/Droply-macos.bin       || true
+          mv dist/Droply-linux/Droply-linux             dist/Droply-linux.bin       || true
+          # Renomme sans .bin
+          mv dist/Droply-windows.exe.bin dist/Droply-windows.exe
+          mv dist/Droply-macos.bin       dist/Droply-macos
+          mv dist/Droply-linux.bin       dist/Droply-linux
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -118,10 +121,9 @@ jobs:
             > ```bash
             > xattr -cr ~/Downloads/Droply-macos && chmod +x ~/Downloads/Droply-macos
             > ```
-            > Ou **Préférences Système → Confidentialité → Ouvrir quand même**.
           files: |
-            dist/Droply-windows.exe/Droply-windows.exe
-            dist/Droply-macos/Droply-macos
-            dist/Droply-linux/Droply-linux
+            dist/Droply-windows.exe
+            dist/Droply-macos
+            dist/Droply-linux
           draft: false
           prerelease: false
