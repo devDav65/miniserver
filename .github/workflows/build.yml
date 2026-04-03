@@ -3,18 +3,27 @@ name: Build Droply
 on:
   push:
     tags:
-      - 'v*'           # Se déclenche sur : git tag v1.0.0 && git push --tags
+      - 'v*'
 
 jobs:
+  # ══════════════════════════════════════════
+  #  BUILD — Windows / macOS / Linux
+  # ══════════════════════════════════════════
   build:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
             artifact_name: Droply.exe
             asset_name: Droply-windows.exe
+
+          - os: macos-latest
+            artifact_name: Droply
+            asset_name: Droply-macos
+
           - os: ubuntu-latest
             artifact_name: Droply
             asset_name: Droply-linux
@@ -29,21 +38,56 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install dependencies
+      # ── Linux : dépendances système pour PyQt6 + Pillow ──
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            libgl1 \
+            libglib2.0-0 \
+            libxcb-xinerama0 \
+            libxcb-cursor0 \
+            libxkbcommon-x11-0 \
+            libdbus-1-3 \
+            libegl1 \
+            libfontconfig1 \
+            libxrender1 \
+            libx11-xcb1 \
+            zlib1g-dev \
+            libjpeg-dev
+
+      # ── macOS : dépendances système pour PyQt6 + Pillow ──
+      - name: Install macOS system dependencies
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install libjpeg zlib
+
+      # ── Toutes plateformes ──
+      - name: Install Python dependencies
         run: pip install -r requirements.txt pyinstaller
 
       - name: Build with PyInstaller
         run: pyinstaller build.spec
 
+      # ── Renommage Unix (macOS + Linux) ──
+      - name: Rename artifact (Unix)
+        if: matrix.os != 'windows-latest'
+        run: mv dist/Droply dist/${{ matrix.asset_name }}
+
+      # ── Upload l'artifact pour le job release ──
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset_name }}
-          path: dist/${{ matrix.artifact_name }}
+          path: dist/${{ matrix.asset_name }}
 
+  # ══════════════════════════════════════════
+  #  RELEASE — Crée la GitHub Release
+  # ══════════════════════════════════════════
   release:
     name: Create GitHub Release
-    needs: build           # attend que les 2 builds soient finis
+    needs: build
     runs-on: ubuntu-latest
 
     steps:
@@ -52,23 +96,32 @@ jobs:
         with:
           path: dist/
 
+      - name: Display downloaded structure
+        run: find dist/
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           name: Droply ${{ github.ref_name }}
           body: |
             ## Droply ${{ github.ref_name }}
-            
-            ### Téléchargements
-            | Plateforme | Fichier |
-            |-----------|---------|
-            | Windows   | `Droply-windows.exe` |
-            | Linux     | `Droply-linux` |
-            
-            ### Changements
-            <!-- Décris tes changements ici -->
+
+            | Plateforme | Téléchargement |
+            |-----------|----------------|
+            | 🪟 Windows | `Droply-windows.exe` |
+            | 🍎 macOS   | `Droply-macos` |
+            | 🐧 Linux   | `Droply-linux` |
+
+            ---
+
+            > **macOS** — Si l'app est bloquée par Gatekeeper :
+            > ```bash
+            > xattr -cr ~/Downloads/Droply-macos && chmod +x ~/Downloads/Droply-macos
+            > ```
+            > Ou **Préférences Système → Confidentialité → Ouvrir quand même**.
           files: |
-            dist/Droply-windows.exe/Droply.exe
-            dist/Droply-linux/Droply
+            dist/Droply-windows.exe/Droply-windows.exe
+            dist/Droply-macos/Droply-macos
+            dist/Droply-linux/Droply-linux
           draft: false
           prerelease: false
