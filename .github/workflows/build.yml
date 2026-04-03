@@ -2,52 +2,73 @@ name: Build Droply
 
 on:
   push:
-    branches: [ "main" ]
+    tags:
+      - 'v*'           # Se déclenche sur : git tag v1.0.0 && git push --tags
 
 jobs:
   build:
+    name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: windows-latest
+            artifact_name: Droply.exe
+            asset_name: Droply-windows.exe
+          - os: ubuntu-latest
+            artifact_name: Droply
+            asset_name: Droply-linux
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Setup Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.12"
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
 
-    - name: Install dependencies
-      run: |
-        pip install -r requirements.txt
-        pip install pyinstaller
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
 
-    - name: Build app
-      run: |
-        pyinstaller --onefile --windowed \
-        --add-data "gui:gui" \
-        --add-data "static:static" \
-        --add-data "templates:templates" \
-        main.py
+      - name: Build with PyInstaller
+        run: pyinstaller build.spec
 
-    - name: Rename output
-      run: |
-        mkdir output
-        if [ "$RUNNER_OS" == "Windows" ]; then
-          mv dist/main.exe output/Droply.exe
-        elif [ "$RUNNER_OS" == "macOS" ]; then
-          mv dist/main output/Droply
-        else
-          mv dist/main output/Droply
-        fi
-      shell: bash
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: dist/${{ matrix.artifact_name }}
 
-    - name: Upload build
-      uses: actions/upload-artifact@v4
-      with:
-        name: Droply-${{ runner.os }}
-        path: output/
+  release:
+    name: Create GitHub Release
+    needs: build           # attend que les 2 builds soient finis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Droply ${{ github.ref_name }}
+          body: |
+            ## Droply ${{ github.ref_name }}
+            
+            ### Téléchargements
+            | Plateforme | Fichier |
+            |-----------|---------|
+            | Windows   | `Droply-windows.exe` |
+            | Linux     | `Droply-linux` |
+            
+            ### Changements
+            <!-- Décris tes changements ici -->
+          files: |
+            dist/Droply-windows.exe/Droply.exe
+            dist/Droply-linux/Droply
+          draft: false
+          prerelease: false
