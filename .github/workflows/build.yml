@@ -86,14 +86,8 @@ jobs:
       - name: Show artifact structure
         run: find dist/ -type f
 
-      - name: Flatten artifacts
-        run: |
-          find dist/ -type f -name "Droply-*" | while read f; do
-            fname=$(basename "$f")
-            mv "$f" "dist/$fname"
-          done
-          echo "=== Final ==="
-          find dist/ -type f
+      - name: Show artifact structure
+        run: find dist/ -type f
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -115,8 +109,8 @@ jobs:
             > xattr -cr ~/Downloads/Droply-macos && chmod +x ~/Downloads/Droply-macos
             > ```
           files: |
-            dist/Droply-windows.exe
-            dist/Droply-macos
-            dist/Droply-linux
+            dist/Droply-windows.exe/Droply-windows.exe
+            dist/Droply-macos/Droply-macos
+            dist/Droply-linux/Droply-linux
           draft: false
           prerelease: false
