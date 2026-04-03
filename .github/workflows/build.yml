@@ -51,16 +51,14 @@ jobs:
       - name: Build with PyInstaller
         run: pyinstaller build.spec
 
-      # Debug — voir ce que PyInstaller a produit
       - name: Show build output
-        run: |
-          find dist/ -type f
+        shell: bash
+        run: find dist/ -type f
 
-      # Renomme le binaire final avec le bon nom dans dist/
       - name: Rename artifact (Windows)
         if: matrix.os == 'windows-latest'
-        run: mv dist/Droply.exe dist/Droply-windows.exe
         shell: bash
+        run: mv dist/Droply.exe dist/Droply-windows.exe
 
       - name: Rename artifact (Unix)
         if: matrix.os != 'windows-latest'
@@ -88,7 +86,6 @@ jobs:
       - name: Show artifact structure
         run: find dist/ -type f
 
-      # Flatten — sort les fichiers de leurs sous-dossiers
       - name: Flatten artifacts
         run: |
           find dist/ -type f -name "Droply-*" | while read f; do
